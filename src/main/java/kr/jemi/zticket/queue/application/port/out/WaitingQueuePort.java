@@ -11,4 +11,8 @@ public interface WaitingQueuePort {
     List<String> peekBatch(int count);
 
     void removeBatch(List<String> uuids);
+
+    void refreshScore(String uuid);
+
+    long removeExpired(long cutoffTimestamp);
 }

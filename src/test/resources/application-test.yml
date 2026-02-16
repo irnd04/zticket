@@ -17,6 +17,7 @@ zticket:
     interval-ms: 60000
     active-ttl-seconds: 3
     max-active-users: 10
+    queue-ttl-seconds: 5
   seat:
     total-count: 50
     hold-ttl-seconds: 3

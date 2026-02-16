@@ -23,17 +23,20 @@ public class QueueService implements EnterQueueUseCase, GetQueueStatusUseCase, A
     private final SeatService seatService;
     private final long activeTtlSeconds;
     private final int maxActiveUsers;
+    private final long queueTtlMs;
 
     public QueueService(WaitingQueuePort waitingQueuePort,
                         ActiveUserPort activeUserPort,
                         SeatService seatService,
                         @Value("${zticket.admission.active-ttl-seconds}") long activeTtlSeconds,
-                        @Value("${zticket.admission.max-active-users}") int maxActiveUsers) {
+                        @Value("${zticket.admission.max-active-users}") int maxActiveUsers,
+                        @Value("${zticket.admission.queue-ttl-seconds}") long queueTtlSeconds) {
         this.waitingQueuePort = waitingQueuePort;
         this.activeUserPort = activeUserPort;
         this.seatService = seatService;
         this.activeTtlSeconds = activeTtlSeconds;
         this.maxActiveUsers = maxActiveUsers;
+        this.queueTtlMs = queueTtlSeconds * 1000;
     }
 
     @Override
@@ -58,11 +61,15 @@ public class QueueService implements EnterQueueUseCase, GetQueueStatusUseCase, A
         if (rank == null) {
             throw new BusinessException(ErrorCode.QUEUE_TOKEN_NOT_FOUND);
         }
+        waitingQueuePort.refreshScore(uuid);
         return QueueToken.waiting(uuid, rank);
     }
 
     @Override
     public void admitBatch(int batchSize) {
+        // 폴링하지 않는 유령 유저 제거 (score < now - waitingTtl)
+        waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+
         // 현재 active 유저 수를 확인하고 빈 슬롯만큼만 입장
         long currentActive = activeUserPort.countActive();
         int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);

@@ -38,11 +38,13 @@ class QueueServiceTest {
 
     private static final long ACTIVE_TTL_SECONDS = 300L;
     private static final int MAX_ACTIVE_USERS = 500;
+    private static final long QUEUE_TTL_SECONDS = 180L;
 
     @BeforeEach
     void setUp() {
         queueService = new QueueService(
-                waitingQueuePort, activeUserPort, seatService, ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS);
+                waitingQueuePort, activeUserPort, seatService,
+                ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS, QUEUE_TTL_SECONDS);
     }
 
     @Nested
@@ -129,6 +131,21 @@ class QueueServiceTest {
         }
 
         @Test
+        @DisplayName("대기 중인 유저의 score를 갱신한다 (유령 방지 heartbeat)")
+        void shouldRefreshScoreForWaitingUser() {
+            // given
+            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(seatService.getAvailableCount()).willReturn(10L);
+            given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
+
+            // when
+            queueService.getStatus("uuid-1");
+
+            // then
+            then(waitingQueuePort).should().refreshScore("uuid-1");
+        }
+
+        @Test
         @DisplayName("대기열에 없는 유저는 QUEUE_TOKEN_NOT_FOUND 예외를 던진다")
         void shouldThrowWhenTokenNotFound() {
             // given
@@ -175,7 +192,7 @@ class QueueServiceTest {
     class AdmitBatch {
 
         @Test
-        @DisplayName("peek → activate → remove 순서로 실행된다 (crash-safe 3-phase)")
+        @DisplayName("removeExpired → peek → activate → remove 순서로 실행된다")
         void shouldExecuteThreePhasesInOrder() {
             // given
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
@@ -185,8 +202,9 @@ class QueueServiceTest {
             // when
             queueService.admitBatch(60);
 
-            // then - 순서 검증: peek → activate(각각) → remove
+            // then - 순서 검증: removeExpired → peek → activate(각각) → remove
             InOrder inOrder = inOrder(waitingQueuePort, activeUserPort);
+            inOrder.verify(waitingQueuePort).removeExpired(anyLong());
             inOrder.verify(waitingQueuePort).peekBatch(60);
             inOrder.verify(activeUserPort).activate("uuid-1", ACTIVE_TTL_SECONDS);
             inOrder.verify(activeUserPort).activate("uuid-2", ACTIVE_TTL_SECONDS);
@@ -270,6 +288,42 @@ class QueueServiceTest {
             queueService.admitBatch(60);
 
             // then - Math.max(0, 500 - 510) = 0이므로 아무것도 안 함
+            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+        }
+    }
+
+    @Nested
+    @DisplayName("admitBatch() - 유령 유저 제거")
+    class AdmitBatchGhostRemoval {
+
+        @Test
+        @DisplayName("admitBatch 시 heartbeat 만료 유저를 먼저 제거한다")
+        void shouldRemoveExpiredBeforeAdmitting() {
+            // given
+            given(activeUserPort.countActive()).willReturn(0L);
+            given(waitingQueuePort.peekBatch(anyInt())).willReturn(List.of("uuid-1"));
+
+            // when
+            queueService.admitBatch(60);
+
+            // then - removeExpired가 peekBatch보다 먼저 호출됨
+            InOrder inOrder = inOrder(waitingQueuePort);
+            inOrder.verify(waitingQueuePort).removeExpired(anyLong());
+            inOrder.verify(waitingQueuePort).peekBatch(anyInt());
+        }
+
+        @Test
+        @DisplayName("슬롯이 없어도 유령 유저는 제거한다")
+        void shouldRemoveExpiredEvenWhenNoSlots() {
+            // given - active가 꽉 차있음
+            given(activeUserPort.countActive()).willReturn(500L);
+
+            // when
+            queueService.admitBatch(60);
+
+            // then - removeExpired는 실행됨
+            then(waitingQueuePort).should().removeExpired(anyLong());
+            // peek은 호출 안 됨
             then(waitingQueuePort).should(never()).peekBatch(anyInt());
         }
     }

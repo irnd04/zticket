@@ -13,6 +13,7 @@ import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 public class WaitingQueueRedisAdapter implements WaitingQueuePort {
 
     private static final String KEY = "waiting_queue";
+    private static final String HEARTBEAT_KEY = "waiting_queue_heartbeat";
 
     private final StringRedisTemplate redisTemplate;
 
@@ -22,7 +23,9 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
 
     @Override
     public long enqueue(String uuid) {
-        redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
+        double now = System.currentTimeMillis();
+        redisTemplate.opsForZSet().add(KEY, uuid, now);
+        redisTemplate.opsForZSet().add(HEARTBEAT_KEY, uuid, now);
         Long rank = redisTemplate.opsForZSet().rank(KEY, uuid);
         if (rank == null) {
             return -1;
@@ -51,7 +54,26 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
     @Override
     public void removeBatch(List<String> uuids) {
         if (!uuids.isEmpty()) {
-            redisTemplate.opsForZSet().remove(KEY, uuids.toArray());
+            Object[] members = uuids.toArray();
+            redisTemplate.opsForZSet().remove(KEY, members);
+            redisTemplate.opsForZSet().remove(HEARTBEAT_KEY, members);
         }
+    }
+
+    @Override
+    public void refreshScore(String uuid) {
+        redisTemplate.opsForZSet().add(HEARTBEAT_KEY, uuid, System.currentTimeMillis());
+    }
+
+    @Override
+    public long removeExpired(long cutoffTimestamp) {
+        Set<String> expired = redisTemplate.opsForZSet().rangeByScore(HEARTBEAT_KEY, 0, cutoffTimestamp);
+        if (expired == null || expired.isEmpty()) {
+            return 0;
+        }
+        Object[] uuids = expired.toArray();
+        redisTemplate.opsForZSet().remove(HEARTBEAT_KEY, uuids);
+        redisTemplate.opsForZSet().remove(KEY, uuids);
+        return expired.size();
     }
 }

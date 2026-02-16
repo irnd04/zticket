@@ -378,16 +378,55 @@ private int seatNumber;
 
 ---
 
-### 8. 대기열 입장: peek → activate → remove 3단계
+### 8. 대기열 입장: 유령 제거 → peek → activate → remove
 
-#### 잠수 유저 처리
+#### 잠수 유저 제거 (Sorted Set 기반)
 
-대기열에서 입장한 뒤 아무 행동도 하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수됩니다. 구매하지 않으면 5분 뒤 자동 만료되어 슬롯이 반환되므로, 별도 heartbeat 없이도 시스템이 자체 치유됩니다.
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(유령 유저)를 자동으로 제거한다.
+
+```
+waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
+waiting_queue_heartbeat (score = 마지막 폴링 시각) → 유령 감지 및 제거용
+```
+
+**동작 흐름**:
+
+| 시점 | waiting_queue | waiting_queue_heartbeat |
+|------|--------------|------------------------|
+| 진입 (`enter`) | ZADD {진입시각} | ZADD {진입시각} |
+| 폴링 (`getStatus`) | 안 건드림 | ZADD {현재시각} |
+| 유령 제거 (`admitBatch`) | ZREM | ZREMRANGEBYSCORE |
+| 입장 (`admitBatch`) | ZREM | ZREM |
+
+**왜 Sorted Set 2개?**
+- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
+- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
+- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
+
+**시간복잡도** (N = 대기열 인원, M = 제거 대상 수):
+
+| 연산 | 명령 | 복잡도 | 빈도 |
+|------|------|--------|------|
+| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
+| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 2초마다 |
+| 유령 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
+| 유령 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
+| rank 조회 | ZRANK | O(log N) | 유저당 2초마다 |
+
+100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 2초마다 1회이므로, 대기자 10만 명이면 ~5만 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+
+#### 입장 후 잠수 유저
+
+입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
 
 #### 입장 제어 (admitBatch)
 
 ```java
 // QueueService.java
+// 0. 유령 유저 제거 (queue-ttl-seconds 동안 폴링 없는 유저)
+waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+
+// 1~3. 입장 처리
 long currentActive = activeUserPort.countActive();
 int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);
 int toAdmit = Math.min(batchSize, slotsAvailable);
@@ -399,17 +438,17 @@ for (String uuid : candidates) {
 waitingQueuePort.removeBatch(candidates);                         // 3. 큐에서 제거
 ```
 
-**입장 제어**: 매 주기마다 현재 active 유저 수를 확인하고, `maxActiveUsers(500) - currentActive` 만큼만 입장시킵니다. 좌석 수 이상의 active 유저를 넣는 것은 의미가 없으므로, active 슬롯에 빈자리가 생길 때만 대기열에서 꺼냅니다. 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새로운 유저가 입장합니다.
+**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시킨다. 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
 
-**active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis는 키를 해시 테이블에 저장하므로 접두사 기반 인덱스가 없습니다. 패턴으로 키를 찾으려면 전체 키스페이스를 순회할 수밖에 없습니다. `KEYS`는 순회 중 Redis를 블로킹하지만, `SCAN`은 커서 기반으로 논블로킹 순회합니다. `SCAN`은 커서 사이에 키가 추가/삭제되면 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요하지 않습니다. 다소 많거나 적게 입장시켜도 다음 주기(1초)에 보정되기 때문입니다.
+**active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
 
-키스페이스가 커지면(수만 개 이상) `SCAN`도 부담이 될 수 있으며, 이 경우 Sorted Set(score=만료 시각)으로 교체하면 `ZCARD` O(1)로 카운트할 수 있습니다. 단, TTL 자동 만료 대신 만료 시각을 직접 관리해야 하는 복잡도가 추가됩니다.
+키스페이스가 수만 개 이상이면 `SCAN`도 부담이 된다. Sorted Set(score=만료 시각)으로 바꾸면 `ZCARD` O(1)로 카운트 가능. 단, TTL 자동 만료 대신 만료 시각을 직접 관리해야 한다.
 
-**최종적 일관성**: peek → activate → remove 3단계를 의도적으로 분리했습니다.
+**peek → activate → remove 3단계 분리**:
 
-- **peek (삭제 안 함)**: 큐에서 꺼내지 않고 조회만 합니다. 여기서 서버가 죽어도 대기열에 그대로 남아있어 유실이 없습니다.
-- **activate**: `active_user:{uuid}` 키를 생성합니다. 멱등 연산이므로 재실행해도 TTL만 갱신됩니다. 여기서 서버가 죽으면 다음 주기에 같은 사용자를 다시 peek → activate하므로 문제없습니다.
-- **remove**: activate가 완료된 후에야 큐에서 제거합니다. 이 순서가 보장되므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
+- **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
+- **activate**: `active_user:{uuid}` 키 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
+- **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
 
 ---
 
@@ -601,7 +640,8 @@ src/main/resources/templates/
 
 | Key Pattern | Type | 값 예시 | TTL | 용도 |
 |-------------|------|---------|-----|------|
-| `waiting_queue` | Sorted Set | member=UUID, score=timestamp | 없음 | FIFO 대기열 |
+| `waiting_queue` | Sorted Set | member=UUID, score=진입시각 | 없음 | FIFO 대기열 (rank 조회) |
+| `waiting_queue_heartbeat` | Sorted Set | member=UUID, score=마지막 폴링시각 | 없음 | 유령 유저 감지 (ZREMRANGEBYSCORE) |
 | `active_user:{uuid}` | String | `"1"` | 300초 | 입장 허용 상태 |
 | `seat:{seatNumber}` | String | `"held:{token}"` | 300초 | 좌석 임시 선점 |
 | `seat:{seatNumber}` | String | `"paid:{token}"` | 없음 (SET 자동 제거) | 좌석 결제 확정 |
@@ -617,6 +657,7 @@ zticket:
     interval-ms: 1000       # 입장 스케줄러 실행 주기
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 200   # 동시 active 유저 상한
+    queue-ttl-seconds: 180  # 대기열 유령 제거 기준 (3분간 폴링 없으면 제거)
   seat:
     total-count: 50         # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
