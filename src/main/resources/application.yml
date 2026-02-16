@@ -18,6 +18,15 @@ spring:
         format_sql: true
     show-sql: false
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+      thread-name-prefix: "zticket-scheduler-"
+      shutdown:
+        await-termination: true
+        await-termination-period: 5s
+
   data:
     redis:
       host: localhost
