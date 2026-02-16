@@ -38,9 +38,21 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 
 ## 실행 방법
 
+### Docker Compose (권장)
+
 ```bash
-# 1. 인프라 실행 (MySQL + Redis)
+# 전체 실행 (MySQL + Redis + App)
 docker compose up -d
+
+# 브라우저 접속
+open http://localhost:8080
+```
+
+### 로컬 개발
+
+```bash
+# 1. 인프라만 실행 (MySQL + Redis)
+docker compose up -d mysql redis
 
 # 2. 애플리케이션 실행
 ./gradlew bootRun
@@ -333,11 +345,12 @@ ticketPersistencePort.save(ticket);  // 변경된 도메인 객체를 그대로 
 ```java
 // TicketJpaAdapter.java - Upsert 패턴
 public Ticket save(Ticket ticket) {
-    TicketJpaEntity entity = repository.findByUuid(ticket.getUuid())
-            .map(existing -> { existing.setStatus(ticket.getStatus()); return existing; })
-            .orElseGet(() -> TicketJpaEntity.fromDomain(ticket));
-    repository.save(entity);
-    return ticket;
+    TicketJpaEntity entity = ticket.getId() != null
+            ? repository.findById(ticket.getId())
+                    .map(existing -> { existing.update(ticket); return existing; })
+                    .orElseGet(() -> TicketJpaEntity.fromDomain(ticket))
+            : TicketJpaEntity.fromDomain(ticket);
+    return repository.save(entity).toDomain();
 }
 ```
 
@@ -347,7 +360,7 @@ public Ticket save(Ticket ticket) {
 - **Upsert 패턴**: 같은 `save()` 메서드로 INSERT(첫 저장)와 UPDATE(상태 변경)를 모두 처리합니다.
 
 **트레이드오프**:
-- **Upsert의 추가 SELECT**: 매 save마다 `findByUuid`를 먼저 실행합니다. 직접 `UPDATE ... WHERE uuid = ?`보다 한 번의 SELECT가 추가됩니다. 하지만 uuid에 인덱스가 있으므로 성능 차이는 미미합니다.
+- **Upsert의 추가 SELECT**: 매 save마다 `findById`를 먼저 실행합니다. 직접 `UPDATE ... WHERE id = ?`보다 한 번의 SELECT가 추가됩니다. 하지만 PK 조회이므로 성능 차이는 미미합니다.
 - **도메인 엔티티 외부 수정 불가**: `ticket.setStatus()`가 없으므로 테스트에서 임의 상태를 주입하려면 생성자를 사용해야 합니다.
 
 ---
@@ -451,7 +464,7 @@ kr.jemi.zticket
 │   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, EXPIRED
 │   │
 │   └── ticket/
-│       ├── Ticket.java                         도메인 엔티티 (uuid, seatNumber, status, queueToken)
+│       ├── Ticket.java                         도메인 엔티티 (id, uuid, seatNumber, status, queueToken, createdAt, updatedAt)
 │       └── TicketStatus.java                   enum: HELD, PAID, SYNCED
 │
 ├── application/                                유스케이스 오케스트레이션 + Port 인터페이스
@@ -500,7 +513,7 @@ kr.jemi.zticket
 │       └── persistence/
 │           ├── TicketJpaEntity.java             seatNumber UNIQUE
 │           ├── TicketJpaRepository.java
-│           └── TicketJpaAdapter.java            Upsert 패턴
+│           └── TicketJpaAdapter.java            Upsert 패턴 (findById 기반)
 │
 ├── config/
 │   ├── RedisConfig.java                        paySeatScript 빈 등록
