@@ -2,6 +2,7 @@ package kr.jemi.zticket.adapter.in.web;
 
 import kr.jemi.zticket.adapter.in.web.dto.SeatStatusResponse;
 import kr.jemi.zticket.application.port.in.GetSeatsUseCase;
+import kr.jemi.zticket.domain.seat.SeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,9 +27,9 @@ public class SeatApiController {
 
     @GetMapping("/status")
     public ResponseEntity<List<SeatStatusResponse>> getStatus() {
-        Map<Integer, String> seatStatuses = getSeatsUseCase.getAllSeatStatuses(totalSeats);
+        Map<Integer, SeatStatus> seatStatuses = getSeatsUseCase.getAllSeatStatuses(totalSeats);
         List<SeatStatusResponse> response = seatStatuses.entrySet().stream()
-                .map(entry -> new SeatStatusResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> SeatStatusResponse.from(entry.getKey(), entry.getValue()))
                 .toList();
         return ResponseEntity.ok(response);
     }

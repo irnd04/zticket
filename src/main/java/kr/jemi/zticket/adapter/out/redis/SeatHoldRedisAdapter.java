@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import kr.jemi.zticket.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.domain.seat.SeatStatus;
 
 @Component
 public class SeatHoldRedisAdapter implements SeatHoldPort {
@@ -42,9 +43,7 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
 
     @Override
     public void setPaidSeat(int seatNumber, String uuid) {
-        String key = KEY_PREFIX + seatNumber;
-        redisTemplate.opsForValue().set(key, "paid:" + uuid);
-        redisTemplate.persist(key);
+        redisTemplate.opsForValue().set(KEY_PREFIX + seatNumber, "paid:" + uuid);
     }
 
     @Override
@@ -53,16 +52,23 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
     }
 
     @Override
-    public Map<Integer, String> getStatuses(List<Integer> seatNumbers) {
+    public Map<Integer, SeatStatus> getStatuses(List<Integer> seatNumbers) {
         List<String> keys = seatNumbers.stream()
                 .map(n -> KEY_PREFIX + n)
                 .toList();
         List<String> values = redisTemplate.opsForValue().multiGet(keys);
-        Map<Integer, String> statuses = new HashMap<>();
+        Map<Integer, SeatStatus> statuses = new HashMap<>();
         for (int i = 0; i < seatNumbers.size(); i++) {
             String value = values != null ? values.get(i) : null;
-            statuses.put(seatNumbers.get(i), value);
+            statuses.put(seatNumbers.get(i), toSeatStatus(value));
         }
         return statuses;
+    }
+
+    private SeatStatus toSeatStatus(String value) {
+        if (value == null) return SeatStatus.AVAILABLE;
+        if (value.startsWith("held:")) return SeatStatus.HELD;
+        if (value.startsWith("paid:")) return SeatStatus.PAID;
+        return SeatStatus.UNKNOWN;
     }
 }

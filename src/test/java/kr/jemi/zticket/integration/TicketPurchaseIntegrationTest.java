@@ -6,6 +6,7 @@ import kr.jemi.zticket.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
+import kr.jemi.zticket.domain.seat.SeatStatus;
 import kr.jemi.zticket.domain.ticket.Ticket;
 import kr.jemi.zticket.domain.ticket.TicketStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -83,10 +84,10 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
         purchaseTicketUseCase.purchase("token-1", 3);
 
         assertThat(getSeatsUseCase.getAllSeatStatuses(5))
-                .containsEntry(1, "available")
-                .containsEntry(2, "available")
-                .containsEntry(3, "paid")
-                .containsEntry(4, "available")
-                .containsEntry(5, "available");
+                .containsEntry(1, SeatStatus.AVAILABLE)
+                .containsEntry(2, SeatStatus.AVAILABLE)
+                .containsEntry(3, SeatStatus.PAID)
+                .containsEntry(4, SeatStatus.AVAILABLE)
+                .containsEntry(5, SeatStatus.AVAILABLE);
     }
 }

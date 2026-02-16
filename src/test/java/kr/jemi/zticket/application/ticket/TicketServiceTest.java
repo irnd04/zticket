@@ -17,6 +17,8 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import kr.jemi.zticket.domain.seat.SeatStatus;
+
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
@@ -290,40 +292,23 @@ class TicketServiceTest {
     class GetAllSeatStatuses {
 
         @Test
-        @DisplayName("Redis 값에 따라 available/held/paid/unknown 상태를 매핑한다")
-        void shouldMapSeatStatuses() {
+        @DisplayName("SeatHoldPort로부터 받은 상태를 그대로 반환한다")
+        void shouldDelegateToSeatHoldPort() {
             // given
-            Map<Integer, String> redisStatuses = Map.of(
-                    1, "held:token-1",
-                    2, "paid:token-2"
-                    // 3, 4, 5는 null → available
+            Map<Integer, SeatStatus> portStatuses = Map.of(
+                    1, SeatStatus.HELD,
+                    2, SeatStatus.PAID,
+                    3, SeatStatus.AVAILABLE
             );
-            given(seatHoldPort.getStatuses(anyList())).willReturn(new java.util.HashMap<>(redisStatuses));
+            given(seatHoldPort.getStatuses(anyList())).willReturn(new java.util.HashMap<>(portStatuses));
 
             // when
-            Map<Integer, String> result = ticketService.getAllSeatStatuses(5);
+            Map<Integer, SeatStatus> result = ticketService.getAllSeatStatuses(3);
 
             // then
-            assertThat(result.get(1)).isEqualTo("held");
-            assertThat(result.get(2)).isEqualTo("paid");
-            assertThat(result.get(3)).isEqualTo("available");
-            assertThat(result.get(4)).isEqualTo("available");
-            assertThat(result.get(5)).isEqualTo("available");
-        }
-
-        @Test
-        @DisplayName("알 수 없는 값은 unknown으로 매핑한다")
-        void shouldMapUnknownValues() {
-            // given
-            Map<Integer, String> redisStatuses = new java.util.HashMap<>();
-            redisStatuses.put(1, "some_unexpected_value");
-            given(seatHoldPort.getStatuses(anyList())).willReturn(redisStatuses);
-
-            // when
-            Map<Integer, String> result = ticketService.getAllSeatStatuses(1);
-
-            // then
-            assertThat(result.get(1)).isEqualTo("unknown");
+            assertThat(result.get(1)).isEqualTo(SeatStatus.HELD);
+            assertThat(result.get(2)).isEqualTo(SeatStatus.PAID);
+            assertThat(result.get(3)).isEqualTo(SeatStatus.AVAILABLE);
         }
     }
 }

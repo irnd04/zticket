@@ -6,6 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import kr.jemi.zticket.domain.seat.SeatStatus;
+
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -37,7 +39,7 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
 
         assertThat(seatHoldPort.getStatuses(List.of(seatNumber)))
                 .as("좌석 available 복구")
-                .containsEntry(seatNumber, null);
+                .containsEntry(seatNumber, SeatStatus.AVAILABLE);
     }
 
     @Test

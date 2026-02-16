@@ -1,8 +1,10 @@
 package kr.jemi.zticket.application.port.in;
 
+import kr.jemi.zticket.domain.seat.SeatStatus;
+
 import java.util.Map;
 
 public interface GetSeatsUseCase {
 
-    Map<Integer, String> getAllSeatStatuses(int totalSeats);
+    Map<Integer, SeatStatus> getAllSeatStatuses(int totalSeats);
 }
