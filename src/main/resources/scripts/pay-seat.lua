@@ -6,5 +6,4 @@ if current ~= ARGV[1] then
     return 1
 end
 redis.call('SET', KEYS[1], ARGV[2])
-redis.call('PERSIST', KEYS[1])
 return 0
