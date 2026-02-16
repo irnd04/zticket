@@ -1,11 +1,14 @@
 package kr.jemi.zticket.queue.application;
 
+import kr.jemi.zticket.common.exception.BusinessException;
+import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
 import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 import kr.jemi.zticket.queue.domain.QueueToken;
+import kr.jemi.zticket.seat.application.SeatService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,36 +20,45 @@ public class QueueService implements EnterQueueUseCase, GetQueueStatusUseCase, A
 
     private final WaitingQueuePort waitingQueuePort;
     private final ActiveUserPort activeUserPort;
+    private final SeatService seatService;
     private final long activeTtlSeconds;
     private final int maxActiveUsers;
 
     public QueueService(WaitingQueuePort waitingQueuePort,
                         ActiveUserPort activeUserPort,
+                        SeatService seatService,
                         @Value("${zticket.admission.active-ttl-seconds}") long activeTtlSeconds,
                         @Value("${zticket.admission.max-active-users}") int maxActiveUsers) {
         this.waitingQueuePort = waitingQueuePort;
         this.activeUserPort = activeUserPort;
+        this.seatService = seatService;
         this.activeTtlSeconds = activeTtlSeconds;
         this.maxActiveUsers = maxActiveUsers;
     }
 
     @Override
     public QueueToken enter() {
+        if (seatService.getAvailableCount() <= 0) {
+            throw new BusinessException(ErrorCode.SOLD_OUT);
+        }
         String uuid = UUID.randomUUID().toString();
         long rank = waitingQueuePort.enqueue(uuid);
-        return new QueueToken(uuid, rank);
+        return QueueToken.waiting(uuid, rank);
     }
 
     @Override
     public QueueToken getStatus(String uuid) {
         if (activeUserPort.isActive(uuid)) {
-            return new QueueToken(uuid, 0);
+            return QueueToken.active(uuid);
+        }
+        if (seatService.getAvailableCount() <= 0) {
+            return QueueToken.soldOut(uuid);
         }
         Long rank = waitingQueuePort.getRank(uuid);
         if (rank == null) {
-            return new QueueToken(uuid, -1);
+            throw new BusinessException(ErrorCode.QUEUE_TOKEN_NOT_FOUND);
         }
-        return new QueueToken(uuid, rank);
+        return QueueToken.waiting(uuid, rank);
     }
 
     @Override

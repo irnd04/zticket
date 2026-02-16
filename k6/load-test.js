@@ -16,8 +16,8 @@ export const options = {
             executor: 'ramping-vus',
             startVUs: 0,
             stages: [
-                { duration: '5s', target: 100 },   // 5초간 100명 진입
-                { duration: '60s', target: 100 },   // 60초간 유지 (대기열 소화)
+                { duration: '5s', target: 10000 },   // 5초간 100명 진입
+                { duration: '60s', target: 10000 },   // 60초간 유지 (대기열 소화)
                 { duration: '5s', target: 0 },       // 정리
             ],
         },
@@ -47,7 +47,7 @@ export default function () {
     const waitStart = Date.now();
     let active = false;
 
-    for (let i = 0; i < 120; i++) {  // 최대 4분 (120 * 2초)
+    for (let i = 0; i < 150; i++) {  // 최대 5분 (120 * 2초)
         sleep(2);
 
         const statusRes = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`);
@@ -57,7 +57,7 @@ export default function () {
             active = true;
             break;
         }
-        if (status === 'EXPIRED') {
+        if (status === 'SOLD_OUT') {
             return;
         }
     }

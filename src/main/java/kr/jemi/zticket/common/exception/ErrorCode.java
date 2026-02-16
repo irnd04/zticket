@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
 
+    SOLD_OUT(409, "매진되었습니다"),
     QUEUE_ALREADY_ENTERED(409, "이미 대기열에 진입했습니다"),
     QUEUE_TOKEN_NOT_FOUND(404, "대기열 토큰을 찾을 수 없습니다"),
     NOT_ACTIVE_USER(403, "입장이 허용되지 않은 사용자입니다"),

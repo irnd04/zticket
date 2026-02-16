@@ -1,9 +1,12 @@
 package kr.jemi.zticket.integration;
 
+import kr.jemi.zticket.common.exception.BusinessException;
+import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
 import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
+import kr.jemi.zticket.queue.domain.QueueStatus;
 import kr.jemi.zticket.queue.domain.QueueToken;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,10 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class QueueAdmissionIntegrationTest extends IntegrationTestBase {
 
@@ -60,26 +62,33 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("상태 조회: WAITING -> ACTIVE -> EXPIRED 전체 라이프사이클")
-    void status_lifecycle_waiting_active_expired() {
+    @DisplayName("상태 조회: WAITING -> ACTIVE 라이프사이클")
+    void status_lifecycle_waiting_active() {
         QueueToken token = enterQueueUseCase.enter();
 
-        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).rank())
-                .as("WAITING: rank > 0")
-                .isPositive();
+        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).status())
+                .as("WAITING")
+                .isEqualTo(QueueStatus.WAITING);
 
         admitUsersUseCase.admitBatch(1);
 
-        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).rank())
-                .as("ACTIVE: rank == 0")
-                .isZero();
+        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).status())
+                .as("ACTIVE")
+                .isEqualTo(QueueStatus.ACTIVE);
+    }
 
-        await().atMost(5, TimeUnit.SECONDS)
-                .untilAsserted(() ->
-                        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).rank())
-                                .as("EXPIRED: rank == -1")
-                                .isEqualTo(-1)
-                );
+    @Test
+    @DisplayName("active TTL 만료 후 상태 조회 시 QUEUE_TOKEN_NOT_FOUND 예외")
+    void status_after_active_ttl_expired_throws() {
+        QueueToken token = enterQueueUseCase.enter();
+        admitUsersUseCase.admitBatch(1);
+
+        // active 키 직접 삭제하여 TTL 만료 시뮬레이션
+        redisTemplate.delete("active_user:" + token.uuid());
+
+        assertThatThrownBy(() -> getQueueStatusUseCase.getStatus(token.uuid()))
+                .isInstanceOfSatisfying(BusinessException.class, e ->
+                        assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
     }
 
     @Test

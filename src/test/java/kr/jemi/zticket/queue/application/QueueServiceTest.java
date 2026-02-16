@@ -1,8 +1,12 @@
 package kr.jemi.zticket.queue.application;
 
+import kr.jemi.zticket.common.exception.BusinessException;
+import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
+import kr.jemi.zticket.queue.domain.QueueStatus;
 import kr.jemi.zticket.queue.domain.QueueToken;
+import kr.jemi.zticket.seat.application.SeatService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -27,6 +31,9 @@ class QueueServiceTest {
     @Mock
     private ActiveUserPort activeUserPort;
 
+    @Mock
+    private SeatService seatService;
+
     private QueueService queueService;
 
     private static final long ACTIVE_TTL_SECONDS = 300L;
@@ -35,7 +42,7 @@ class QueueServiceTest {
     @BeforeEach
     void setUp() {
         queueService = new QueueService(
-                waitingQueuePort, activeUserPort, ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS);
+                waitingQueuePort, activeUserPort, seatService, ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS);
     }
 
     @Nested
@@ -46,6 +53,7 @@ class QueueServiceTest {
         @DisplayName("UUID를 생성하고 대기열에 등록 후 순번을 반환한다")
         void shouldEnqueueAndReturnRank() {
             // given
+            given(seatService.getAvailableCount()).willReturn(10L);
             given(waitingQueuePort.enqueue(anyString())).willReturn(1L);
 
             // when
@@ -61,6 +69,7 @@ class QueueServiceTest {
         @DisplayName("여러 번 enter()하면 매번 다른 UUID가 생성된다")
         void shouldGenerateUniqueUuids() {
             // given
+            given(seatService.getAvailableCount()).willReturn(10L);
             given(waitingQueuePort.enqueue(anyString())).willReturn(1L, 2L);
 
             // when
@@ -70,6 +79,19 @@ class QueueServiceTest {
             // then
             assertThat(token1.uuid()).isNotEqualTo(token2.uuid());
         }
+
+        @Test
+        @DisplayName("매진 시 SOLD_OUT 예외를 던진다")
+        void shouldThrowWhenSoldOut() {
+            // given
+            given(seatService.getAvailableCount()).willReturn(0L);
+
+            // when & then
+            assertThatThrownBy(() -> queueService.enter())
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.SOLD_OUT));
+            then(waitingQueuePort).should(never()).enqueue(anyString());
+        }
     }
 
     @Nested
@@ -77,8 +99,8 @@ class QueueServiceTest {
     class GetStatus {
 
         @Test
-        @DisplayName("active 유저는 rank=0을 반환한다 (ACTIVE)")
-        void shouldReturnRankZeroForActiveUser() {
+        @DisplayName("active 유저는 ACTIVE 상태를 반환한다")
+        void shouldReturnActiveStatus() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(true);
 
@@ -86,36 +108,52 @@ class QueueServiceTest {
             QueueToken token = queueService.getStatus("uuid-1");
 
             // then
-            assertThat(token.rank()).isEqualTo(0);
+            assertThat(token.status()).isEqualTo(QueueStatus.ACTIVE);
             assertThat(token.uuid()).isEqualTo("uuid-1");
         }
 
         @Test
-        @DisplayName("대기 중인 유저는 양수 rank를 반환한다 (WAITING)")
-        void shouldReturnPositiveRankForWaitingUser() {
+        @DisplayName("대기 중인 유저는 WAITING 상태와 순번을 반환한다")
+        void shouldReturnWaitingStatus() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(seatService.getAvailableCount()).willReturn(10L);
             given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
 
             // when
             QueueToken token = queueService.getStatus("uuid-1");
 
             // then
+            assertThat(token.status()).isEqualTo(QueueStatus.WAITING);
             assertThat(token.rank()).isEqualTo(42L);
         }
 
         @Test
-        @DisplayName("만료된 유저는 rank=-1을 반환한다 (EXPIRED)")
-        void shouldReturnNegativeRankForExpiredUser() {
+        @DisplayName("대기열에 없는 유저는 QUEUE_TOKEN_NOT_FOUND 예외를 던진다")
+        void shouldThrowWhenTokenNotFound() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(seatService.getAvailableCount()).willReturn(10L);
             given(waitingQueuePort.getRank("uuid-1")).willReturn(null);
+
+            // when & then
+            assertThatThrownBy(() -> queueService.getStatus("uuid-1"))
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("매진 시 SOLD_OUT 상태를 반환한다")
+        void shouldReturnSoldOutWhenNoSeatsAvailable() {
+            // given
+            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(seatService.getAvailableCount()).willReturn(0L);
 
             // when
             QueueToken token = queueService.getStatus("uuid-1");
 
             // then
-            assertThat(token.rank()).isEqualTo(-1L);
+            assertThat(token.status()).isEqualTo(QueueStatus.SOLD_OUT);
         }
 
         @Test
