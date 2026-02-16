@@ -34,12 +34,12 @@ spring:
 
 zticket:
   admission:
-    batch-size: 60
+    batch-size: 5
     interval-ms: 1000
     active-ttl-seconds: 300
-    max-active-users: 500
+    max-active-users: 50
   seat:
-    total-count: 500
+    total-count: 50
     hold-ttl-seconds: 300
   sync:
     interval-ms: 60000
