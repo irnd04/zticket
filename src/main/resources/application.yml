@@ -2,6 +2,7 @@ spring:
   application:
     name: zticket
 
+
   datasource:
     url: jdbc:mysql://localhost:3306/zticket?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
     username: root

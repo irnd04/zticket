@@ -20,14 +20,15 @@ public class TicketJpaAdapter implements TicketPersistencePort {
     @Override
     @Transactional
     public Ticket save(Ticket ticket) {
-        TicketJpaEntity entity = repository.findByUuid(ticket.getUuid())
-                .map(existing -> {
-                    existing.setStatus(ticket.getStatus());
-                    return existing;
-                })
-                .orElseGet(() -> TicketJpaEntity.fromDomain(ticket));
-        repository.save(entity);
-        return ticket;
+        TicketJpaEntity entity = ticket.getId() != null
+                ? repository.findById(ticket.getId())
+                        .map(existing -> {
+                            existing.update(ticket);
+                            return existing;
+                        })
+                        .orElseGet(() -> TicketJpaEntity.fromDomain(ticket))
+                : TicketJpaEntity.fromDomain(ticket);
+        return repository.save(entity).toDomain();
     }
 
     @Override

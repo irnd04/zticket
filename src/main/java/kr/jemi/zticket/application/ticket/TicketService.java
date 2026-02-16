@@ -54,7 +54,7 @@ public class TicketService implements PurchaseTicketUseCase, GetSeatsUseCase {
         // 3. DB에 PAID 티켓 저장 (결제 완료)
         Ticket ticket = Ticket.create(queueToken, seatNumber);
         try {
-            ticketPersistencePort.save(ticket);
+            ticket = ticketPersistencePort.save(ticket);
         } catch (Exception e) {
             // 롤백: Redis 좌석 해제
             log.error("DB 저장 실패, 좌석 해제: {}", seatNumber, e);
@@ -71,9 +71,7 @@ public class TicketService implements PurchaseTicketUseCase, GetSeatsUseCase {
 
         // 5. DB 티켓 상태를 SYNCED로 변경
         ticket.sync();
-        ticketPersistencePort.save(ticket);
-
-        return ticket;
+        return ticketPersistencePort.save(ticket);
     }
 
     @Override

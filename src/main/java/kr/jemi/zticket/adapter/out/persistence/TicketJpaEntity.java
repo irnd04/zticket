@@ -39,17 +39,26 @@ public class TicketJpaEntity {
         entity.seatNumber = ticket.getSeatNumber();
         entity.status = ticket.getStatus();
         entity.queueToken = ticket.getQueueToken();
-        entity.createdAt = LocalDateTime.now();
+        entity.createdAt = ticket.getCreatedAt();
+        entity.updatedAt = ticket.getUpdatedAt();
         return entity;
     }
 
     public Ticket toDomain() {
-        return new Ticket(uuid, seatNumber, status, queueToken);
+        return new Ticket(id, uuid, seatNumber, status, queueToken, createdAt, updatedAt);
     }
 
     public void setStatus(TicketStatus status) {
         this.status = status;
-        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void update(Ticket ticket) {
+        this.uuid = ticket.getUuid();
+        this.seatNumber = ticket.getSeatNumber();
+        this.status = ticket.getStatus();
+        this.queueToken = ticket.getQueueToken();
+        this.createdAt = ticket.getCreatedAt();
+        this.updatedAt = ticket.getUpdatedAt();
     }
 
     public String getUuid() { return uuid; }
