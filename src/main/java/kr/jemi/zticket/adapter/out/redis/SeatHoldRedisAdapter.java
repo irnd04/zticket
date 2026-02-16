@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import kr.jemi.zticket.application.port.out.SeatHoldPort;
 import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.domain.seat.SeatStatuses;
 
 @Component
 public class SeatHoldRedisAdapter implements SeatHoldPort {
@@ -52,7 +53,7 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
     }
 
     @Override
-    public Map<Integer, SeatStatus> getStatuses(List<Integer> seatNumbers) {
+    public SeatStatuses getStatuses(List<Integer> seatNumbers) {
         List<String> keys = seatNumbers.stream()
                 .map(n -> KEY_PREFIX + n)
                 .toList();
@@ -62,7 +63,7 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
             String value = values != null ? values.get(i) : null;
             statuses.put(seatNumbers.get(i), toSeatStatus(value));
         }
-        return statuses;
+        return new SeatStatuses(statuses);
     }
 
     private SeatStatus toSeatStatus(String value) {

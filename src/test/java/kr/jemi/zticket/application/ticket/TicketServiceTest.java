@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.domain.seat.SeatStatuses;
 
 import java.util.Map;
 
@@ -295,20 +296,20 @@ class TicketServiceTest {
         @DisplayName("SeatHoldPort로부터 받은 상태를 그대로 반환한다")
         void shouldDelegateToSeatHoldPort() {
             // given
-            Map<Integer, SeatStatus> portStatuses = Map.of(
+            SeatStatuses portStatuses = new SeatStatuses(Map.of(
                     1, SeatStatus.HELD,
                     2, SeatStatus.PAID,
                     3, SeatStatus.AVAILABLE
-            );
-            given(seatHoldPort.getStatuses(anyList())).willReturn(new java.util.HashMap<>(portStatuses));
+            ));
+            given(seatHoldPort.getStatuses(anyList())).willReturn(portStatuses);
 
             // when
-            Map<Integer, SeatStatus> result = ticketService.getAllSeatStatuses(3);
+            SeatStatuses result = ticketService.getAllSeatStatuses(3);
 
             // then
-            assertThat(result.get(1)).isEqualTo(SeatStatus.HELD);
-            assertThat(result.get(2)).isEqualTo(SeatStatus.PAID);
-            assertThat(result.get(3)).isEqualTo(SeatStatus.AVAILABLE);
+            assertThat(result.of(1)).isEqualTo(SeatStatus.HELD);
+            assertThat(result.of(2)).isEqualTo(SeatStatus.PAID);
+            assertThat(result.of(3)).isEqualTo(SeatStatus.AVAILABLE);
         }
     }
 }

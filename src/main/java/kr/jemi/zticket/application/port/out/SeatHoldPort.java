@@ -1,9 +1,8 @@
 package kr.jemi.zticket.application.port.out;
 
-import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.domain.seat.SeatStatuses;
 
 import java.util.List;
-import java.util.Map;
 
 public interface SeatHoldPort {
 
@@ -15,5 +14,5 @@ public interface SeatHoldPort {
 
     void setPaidSeat(int seatNumber, String uuid);
 
-    Map<Integer, SeatStatus> getStatuses(List<Integer> seatNumbers);
+    SeatStatuses getStatuses(List<Integer> seatNumbers);
 }

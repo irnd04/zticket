@@ -1,6 +1,7 @@
 package kr.jemi.zticket.adapter.out.redis;
 
 import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.domain.seat.SeatStatuses;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,13 +46,12 @@ class SeatHoldRedisAdapterTest {
         given(valueOperations.multiGet(keys)).willReturn(values);
 
         // when
-        Map<Integer, SeatStatus> result = seatHoldRedisAdapter.getStatuses(seats);
+        SeatStatuses result = seatHoldRedisAdapter.getStatuses(seats);
 
         // then
-        assertThat(result)
-                .containsEntry(1, SeatStatus.HELD)
-                .containsEntry(2, SeatStatus.PAID)
-                .containsEntry(3, SeatStatus.AVAILABLE)
-                .containsEntry(4, SeatStatus.UNKNOWN);
+        assertThat(result.of(1)).isEqualTo(SeatStatus.HELD);
+        assertThat(result.of(2)).isEqualTo(SeatStatus.PAID);
+        assertThat(result.of(3)).isEqualTo(SeatStatus.AVAILABLE);
+        assertThat(result.of(4)).isEqualTo(SeatStatus.UNKNOWN);
     }
 }

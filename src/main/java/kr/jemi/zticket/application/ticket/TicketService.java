@@ -7,7 +7,7 @@ import kr.jemi.zticket.application.port.out.SeatHoldPort;
 import kr.jemi.zticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
-import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.domain.seat.SeatStatuses;
 import kr.jemi.zticket.domain.ticket.Ticket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +15,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.IntStream;
 
 @Service
@@ -75,7 +74,7 @@ public class TicketService implements PurchaseTicketUseCase, GetSeatsUseCase {
     }
 
     @Override
-    public Map<Integer, SeatStatus> getAllSeatStatuses(int totalSeats) {
+    public SeatStatuses getAllSeatStatuses(int totalSeats) {
         List<Integer> allSeats = IntStream.rangeClosed(1, totalSeats)
                 .boxed()
                 .toList();

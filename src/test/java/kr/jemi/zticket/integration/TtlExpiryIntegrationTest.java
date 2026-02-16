@@ -37,9 +37,9 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
                         assertThat(redisTemplate.hasKey(seatKey)).as("TTL 만료 후 키 소멸").isFalse()
                 );
 
-        assertThat(seatHoldPort.getStatuses(List.of(seatNumber)))
+        assertThat(seatHoldPort.getStatuses(List.of(seatNumber)).of(seatNumber))
                 .as("좌석 available 복구")
-                .containsEntry(seatNumber, SeatStatus.AVAILABLE);
+                .isEqualTo(SeatStatus.AVAILABLE);
     }
 
     @Test
