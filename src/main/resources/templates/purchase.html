@@ -521,7 +521,7 @@
         async function loadSeats() {
             showLoading('좌석 정보를 불러오는 중...');
             try {
-                var response = await fetch('/api/seats/status');
+                var response = await fetch('/api/seats');
                 if (!response.ok) {
                     throw new Error('좌석 정보를 불러올 수 없습니다.');
                 }
@@ -547,7 +547,7 @@
             showLoading('구매 처리 중...');
 
             try {
-                var response = await fetch('/api/ticket/purchase', {
+                var response = await fetch('/api/tickets', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

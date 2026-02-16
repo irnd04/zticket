@@ -479,7 +479,7 @@ kr.jemi.zticket
 │   └── adapter/
 │       ├── in/
 │       │   ├── web/
-│       │   │   ├── QueueApiController.java     /api/queue/**
+│       │   │   ├── QueueApiController.java     /api/queues/tokens/**
 │       │   │   └── dto/
 │       │   │       ├── TokenResponse.java
 │       │   │       └── QueueStatusResponse.java
@@ -504,7 +504,7 @@ kr.jemi.zticket
 │   └── adapter/
 │       ├── in/
 │       │   └── web/
-│       │       ├── SeatApiController.java      /api/seats/**
+│       │       ├── SeatApiController.java      /api/seats
 │       │       └── dto/
 │       │           └── SeatStatusResponse.java
 │       └── out/
@@ -527,7 +527,7 @@ kr.jemi.zticket
 │   └── adapter/
 │       ├── in/
 │       │   ├── web/
-│       │   │   ├── TicketApiController.java    /api/ticket/**
+│       │   │   ├── TicketApiController.java    /api/tickets
 │       │   │   └── dto/
 │       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
 │       │   │       └── PurchaseResponse.java
@@ -586,15 +586,15 @@ src/main/resources/templates/
 
 | Method | Path | 설명 | 인증 |
 |--------|------|------|------|
-| POST | `/api/queue/token` | 대기열 진입, UUID 토큰 반환 | 없음 |
-| GET | `/api/queue/status/{uuid}` | 대기 순번/상태 조회 | 없음 |
-| GET | `/api/seats/status` | 전체 좌석 현황 (500석 일괄 조회) | 없음 |
-| POST | `/api/ticket/purchase` | 좌석 구매 | `X-Queue-Token` 헤더 |
+| POST | `/api/queues/tokens` | 대기열 진입, UUID 토큰 반환 | 없음 |
+| GET | `/api/queues/tokens/{uuid}` | 대기 순번/상태 조회 | 없음 |
+| GET | `/api/seats` | 전체 좌석 현황 (500석 일괄 조회) | 없음 |
+| POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
 
 ### 구매 요청/응답 예시
 
 ```
-POST /api/ticket/purchase
+POST /api/tickets
 X-Queue-Token: 550e8400-e29b-41d4-a716-446655440000
 Content-Type: application/json
 

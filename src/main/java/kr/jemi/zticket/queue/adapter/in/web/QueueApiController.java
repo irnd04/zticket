@@ -9,11 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/queue")
 public class QueueApiController {
 
     private final EnterQueueUseCase enterQueueUseCase;
@@ -25,13 +23,13 @@ public class QueueApiController {
         this.getQueueStatusUseCase = getQueueStatusUseCase;
     }
 
-    @PostMapping("/token")
+    @PostMapping("/api/queues/tokens")
     public ResponseEntity<TokenResponse> enter() {
         QueueToken token = enterQueueUseCase.enter();
         return ResponseEntity.ok(new TokenResponse(token.uuid(), token.rank()));
     }
 
-    @GetMapping("/status/{uuid}")
+    @GetMapping("/api/queues/tokens/{uuid}")
     public ResponseEntity<QueueStatusResponse> getStatus(@PathVariable String uuid) {
         QueueToken token = getQueueStatusUseCase.getStatus(uuid);
         return ResponseEntity.ok(QueueStatusResponse.from(token));

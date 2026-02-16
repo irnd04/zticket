@@ -263,7 +263,7 @@
             errorEl.classList.remove('visible');
 
             try {
-                var response = await fetch('/api/queue/token', {
+                var response = await fetch('/api/queues/tokens', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

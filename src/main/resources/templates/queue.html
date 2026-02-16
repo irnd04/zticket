@@ -371,7 +371,7 @@
 
         async function checkStatus() {
             try {
-                var response = await fetch('/api/queue/status/' + encodeURIComponent(uuid));
+                var response = await fetch('/api/queues/tokens/' + encodeURIComponent(uuid));
 
                 if (!response.ok) {
                     var errorData = await response.json().catch(function() {
