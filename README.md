@@ -441,15 +441,26 @@ waitingQueuePort.removeBatch(candidates);                         // 3. 큐에�
 
 ### 10. 스케줄러: Spring @Scheduled (단일 JVM)
 
-#### 선택: Spring @Scheduled + ThreadPoolTaskScheduler(풀 사이즈 2)
+#### 선택: Spring @Scheduled + 속성 기반 설정 (풀 사이즈 2)
 
-```java
-// SchedulerConfig.java
-scheduler.setPoolSize(2);  // AdmissionScheduler + SyncScheduler
+```yaml
+# application.yml
+spring:
+  task:
+    scheduling:
+      pool:
+        size: 2                          # AdmissionScheduler + SyncScheduler
+      thread-name-prefix: "zticket-scheduler-"
+      shutdown:
+        await-termination: true
+        await-termination-period: 5s
 ```
+
+별도 `SchedulerConfig` 클래스 없이 Spring Boot의 자동 구성(`spring.task.scheduling`)을 사용합니다. `@EnableScheduling`은 `ZticketApplication`에 선언되어 있습니다.
 
 **채택 이유**:
 - 대용량 트래픽 처리라는 핵심 도메인에 집중하기 위해 스케줄러는 가장 단순한 방식으로 구성했습니다. 별도 인프라 없이 Spring `@Scheduled`만으로 동작합니다.
+- `await-termination`을 활성화하여 셧다운 시 실행 중인 스케줄러가 안전하게 완료될 수 있도록 합니다.
 
 **프로덕션 고려사항**:
 - 서버 이중화 시 ShedLock 등의 분산 스케줄러 도입이 필요합니다. 현재 구조에서는 서버를 여러 대로 스케일아웃하면 스케줄러가 인스턴스 수만큼 중복 실행됩니다.
@@ -554,6 +565,7 @@ kr.jemi.zticket
 │
 └── config/
     └── RedisConfig.java                        paySeatScript 빈 등록
+    (스케줄러 설정은 application.yml spring.task.scheduling으로 처리)
 ```
 
 ### 도메인 간 의존 관계
