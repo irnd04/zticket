@@ -578,7 +578,7 @@ src/main/resources/scripts/
 src/main/resources/templates/
 ├── index.html              메인 (대기열 진입 버튼)
 ├── queue.html              대기열 (순번 표시, 2초 폴링, ACTIVE 시 자동 이동)
-├── purchase.html           좌석 선택 + 구매 (좌석 배치도 UI, 단일 좌석 선택)
+├── purchase.html           좌석 선택 + 구매 (50석 전용 5x10 그리드, A1~E10)
 └── confirmation.html       구매 결과 (성공/실패)
 ```
 
@@ -630,12 +630,12 @@ Content-Type: application/json
 ```yaml
 zticket:
   admission:
-    batch-size: 60          # 1초마다 최대 입장 인원 수
+    batch-size: 200         # 1초마다 최대 입장 인원 수
     interval-ms: 1000       # 입장 스케줄러 실행 주기
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
-    max-active-users: 500   # 동시 active 유저 상한 (= 좌석 수)
+    max-active-users: 200   # 동시 active 유저 상한
   seat:
-    total-count: 500        # 총 좌석 수
+    total-count: 50         # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
   sync:
     interval-ms: 60000      # 동기화 워커 실행 주기 (1분)
@@ -659,10 +659,10 @@ brew install k6
 
 ### 시나리오
 
-VU(가상 유저) 100명이 동시에 티켓 구매를 시도하는 시나리오입니다. 각 VU는 실제 사용자와 동일한 플로우를 수행합니다.
+VU(가상 유저)가 동시에 티켓 구매를 시도하는 시나리오입니다 (`per-vu-iterations`, VU당 1회 실행). 각 VU는 실제 사용자와 동일한 플로우를 수행합니다.
 
 ```
-VU 100명 동시 시작
+VU 동시 시작 (각 VU 1회만 실행)
     │
     ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
     │
@@ -703,7 +703,7 @@ Spring Boot Actuator + Micrometer로 메트릭을 수집하고, Prometheus + Gra
 ```
 App (Actuator /actuator/prometheus)
     │
-    │  5초 주기 스크래핑
+    │  10초 주기 스크래핑
     ▼
 Prometheus (:9090)
     │
@@ -733,13 +733,17 @@ Grafana 접속 시 `ZTicket Monitoring` 대시보드가 자동으로 프로비�
 | 패널 | 확인할 수 있는 것 |
 |------|-------------------|
 | HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
-| HTTP Response Time p95 | 95% 응답 시간 — 대부분의 사용자 체감 지연 |
-| HTTP Response Time p99 | 99% 응답 시간 — 꼬리 지연(tail latency) |
+| HTTP Response Time (p95/p99) | 응답 시간 분포 — 체감 지연 및 꼬리 지연 |
 | HTTP Error Rate | 4xx/5xx 에러 비율 |
-| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
-| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
+| Tomcat Threads | busy/current/max 스레드 — 요청 처리 용량 |
 | HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
+| HikariCP Acquire Time | 커넥션 획득 대기 시간 — 풀 고갈 감지 |
+| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
 | GC Pause Time | GC 멈춤 시간 — GC로 인한 응답 지연 감지 |
+| CPU Usage | process/system CPU 사용률 |
+| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
+| Redis Command Rate | Redis 명령 초당 처리량 (ops/s) |
+| Redis Latency | Redis 명령 avg/max 응답 시간 |
 
 ### Actuator 엔드포인트
 
@@ -772,5 +776,7 @@ k6 run k6/load-test.js
 | 응답 느림 | p95/p99 급등 | Redis/DB 병목 또는 GC |
 | 에러 급증 | Error Rate 상승 | 커넥션풀 고갈, 타임아웃 |
 | 메모리 부족 | Heap 사용량 max 근접 | JVM 힙 부족, GC 빈번 |
-| DB 병목 | HikariCP pending 증가 | 커넥션풀 사이즈 부족 |
-| 스레드 고갈 | Threads 급증 | Tomcat 스레드풀 부족 |
+| DB 병목 | HikariCP pending 증가, Acquire Time 급등 | 커넥션풀 사이즈 부족 |
+| 스레드 고갈 | Tomcat busy ≈ max | Tomcat 스레드풀 부족 |
+| Redis 병목 | Redis Latency 급등 | 커넥션 부족 또는 느린 명령 |
+| CPU 포화 | CPU Usage 100% 근접 | 연산 과부하 |
