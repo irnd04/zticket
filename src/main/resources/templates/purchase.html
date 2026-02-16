@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZTicket - 좌석 선택</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #16213e;
+            border-bottom: 1px solid #2a2a4a;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-logo {
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: #6c63ff;
+        }
+
+        .header-logo span {
+            color: #e0e0e0;
+        }
+
+        .header-info {
+            font-size: 0.85rem;
+            color: #7a75aa;
+        }
+
+        .main-content {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 30px 20px 120px;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 6px;
+        }
+
+        .page-desc {
+            color: #7a75aa;
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #9a95cb;
+        }
+
+        .legend-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        .legend-box.available {
+            background: #3a3a5c;
+            border: 1px solid #5a5a7c;
+        }
+
+        .legend-box.selected {
+            background: #6c63ff;
+        }
+
+        .legend-box.held {
+            background: #f59e0b;
+        }
+
+        .legend-box.paid {
+            background: #ef4444;
+        }
+
+        /* Stage */
+        .stage {
+            background: linear-gradient(180deg, rgba(108, 99, 255, 0.2) 0%, rgba(108, 99, 255, 0.05) 100%);
+            border: 1px solid rgba(108, 99, 255, 0.3);
+            border-radius: 10px 10px 40px 40px;
+            padding: 14px;
+            text-align: center;
+            color: #6c63ff;
+            font-weight: 700;
+            font-size: 1rem;
+            letter-spacing: 4px;
+            margin-bottom: 30px;
+        }
+
+        /* Seat map */
+        .seat-map-wrapper {
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .seat-map {
+            display: grid;
+            grid-template-columns: repeat(25, 1fr);
+            gap: 4px;
+            min-width: 650px;
+            margin: 0 auto;
+        }
+
+        .seat {
+            aspect-ratio: 1;
+            border-radius: 4px;
+            font-size: 0.55rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            position: relative;
+            min-width: 0;
+        }
+
+        .seat.available {
+            background: #3a3a5c;
+            border: 1px solid #5a5a7c;
+        }
+
+        .seat.available:hover {
+            background: #4a4a6c;
+            border-color: #6c63ff;
+            transform: scale(1.15);
+            z-index: 10;
+        }
+
+        .seat.selected {
+            background: #6c63ff;
+            border: 1px solid #8a83ff;
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+        .seat.selected:hover {
+            background: #5a53e0;
+            transform: scale(1.15);
+            z-index: 10;
+        }
+
+        .seat.held {
+            background: #f59e0b;
+            border: 1px solid #fbbf24;
+            cursor: not-allowed;
+            color: #1a1a2e;
+        }
+
+        .seat.paid {
+            background: #ef4444;
+            border: 1px solid #f87171;
+            cursor: not-allowed;
+            color: #1a1a2e;
+        }
+
+        /* Row labels */
+        .row-labels {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* Bottom bar */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #16213e;
+            border-top: 1px solid #2a2a4a;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .selected-info {
+            font-size: 0.95rem;
+            color: #9a95cb;
+        }
+
+        .selected-info strong {
+            color: #6c63ff;
+            font-size: 1.2rem;
+        }
+
+        .purchase-btn {
+            background: linear-gradient(135deg, #6c63ff 0%, #a855f7 100%);
+            color: #ffffff;
+            border: none;
+            padding: 14px 40px;
+            font-size: 1rem;
+            font-weight: 700;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .purchase-btn:hover {
+            box-shadow: 0 6px 24px rgba(108, 99, 255, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .purchase-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .purchase-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(26, 26, 46, 0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .loading-overlay.visible {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #2a2a4a;
+            border-top-color: #6c63ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: #9a95cb;
+            font-size: 0.95rem;
+        }
+
+        /* Error toast */
+        .toast {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            background: rgba(239, 68, 68, 0.95);
+            color: #ffffff;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            z-index: 300;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        .toast.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast.success {
+            background: rgba(34, 197, 94, 0.95);
+        }
+
+        /* Row number column */
+        .seat-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .row-numbers {
+            display: grid;
+            grid-template-rows: repeat(20, 1fr);
+            gap: 4px;
+            min-width: 28px;
+        }
+
+        .row-num {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: #5a5a7c;
+            font-weight: 600;
+            aspect-ratio: 1;
+        }
+
+        @media (max-width: 768px) {
+            .bottom-bar {
+                flex-direction: column;
+                gap: 10px;
+                padding: 12px 16px;
+            }
+            .purchase-btn {
+                width: 100%;
+            }
+            .seat {
+                font-size: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-logo">Z<span>Ticket</span></div>
+        <div class="header-info">좌석을 선택해주세요</div>
+    </div>
+
+    <div class="main-content">
+        <h1 class="page-title">좌석 선택</h1>
+        <p class="page-desc">원하는 좌석을 클릭하여 선택한 후 구매하기 버튼을 눌러주세요.</p>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-box available"></div>
+                <span>선택 가능</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box selected"></div>
+                <span>내가 선택</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box held"></div>
+                <span>선택 중 (다른 사용자)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box paid"></div>
+                <span>판매 완료</span>
+            </div>
+        </div>
+
+        <div class="stage">STAGE</div>
+
+        <div class="seat-map-wrapper">
+            <div class="seat-container">
+                <div class="row-numbers" id="rowNumbers"></div>
+                <div class="seat-map" id="seatMap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-bar">
+        <div class="selected-info">
+            선택한 좌석: <strong id="selectedCount">-</strong>
+        </div>
+        <button class="purchase-btn" id="purchaseBtn" disabled onclick="purchaseTickets()">구매하기</button>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">좌석 정보를 불러오는 중...</div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        var token = null;
+        var selectedSeat = null;
+        var seatStatusMap = {};
+
+        function getQueryParam(name) {
+            var params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
+
+        function showLoading(text) {
+            document.getElementById('loadingText').textContent = text || '처리 중...';
+            document.getElementById('loadingOverlay').classList.add('visible');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('visible');
+        }
+
+        function showToast(message, isSuccess) {
+            var toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast visible' + (isSuccess ? ' success' : '');
+            setTimeout(function() {
+                toast.classList.remove('visible');
+            }, 3000);
+        }
+
+        function updateSelectedInfo() {
+            document.getElementById('selectedCount').textContent = selectedSeat ? selectedSeat + '번' : '-';
+            document.getElementById('purchaseBtn').disabled = selectedSeat === null;
+        }
+
+        function toggleSeat(seatNumber) {
+            var seatEl = document.getElementById('seat-' + seatNumber);
+            if (!seatEl || seatEl.classList.contains('held') || seatEl.classList.contains('paid')) {
+                return;
+            }
+
+            // Deselect previous seat
+            if (selectedSeat !== null) {
+                var prevEl = document.getElementById('seat-' + selectedSeat);
+                if (prevEl) {
+                    prevEl.classList.remove('selected');
+                    prevEl.classList.add('available');
+                }
+            }
+
+            if (selectedSeat === seatNumber) {
+                selectedSeat = null;
+            } else {
+                selectedSeat = seatNumber;
+                seatEl.classList.remove('available');
+                seatEl.classList.add('selected');
+            }
+
+            updateSelectedInfo();
+        }
+
+        function renderSeatMap(seatStatuses) {
+            var seatMap = document.getElementById('seatMap');
+            var rowNumbers = document.getElementById('rowNumbers');
+            seatMap.innerHTML = '';
+            rowNumbers.innerHTML = '';
+
+            // Generate row labels (A-T for 20 rows)
+            var rowLabels = [];
+            for (var r = 0; r < 20; r++) {
+                rowLabels.push(String.fromCharCode(65 + r));
+                var rowNum = document.createElement('div');
+                rowNum.className = 'row-num';
+                rowNum.textContent = rowLabels[r];
+                rowNumbers.appendChild(rowNum);
+            }
+
+            // Build status map
+            seatStatusMap = {};
+            if (seatStatuses && Array.isArray(seatStatuses)) {
+                for (var i = 0; i < seatStatuses.length; i++) {
+                    var s = seatStatuses[i];
+                    seatStatusMap[s.seatNumber] = s.status;
+                }
+            }
+
+            // Create 500 seats (20 rows x 25 cols)
+            for (var seatNum = 1; seatNum <= 500; seatNum++) {
+                var seat = document.createElement('div');
+                seat.id = 'seat-' + seatNum;
+                seat.className = 'seat';
+                seat.textContent = seatNum;
+
+                var status = seatStatusMap[seatNum] || 'available';
+                status = status.toLowerCase();
+
+                if (status === 'available') {
+                    seat.classList.add('available');
+                    seat.onclick = (function(num) {
+                        return function() { toggleSeat(num); };
+                    })(seatNum);
+                } else if (status === 'held') {
+                    seat.classList.add('held');
+                } else if (status === 'paid') {
+                    seat.classList.add('paid');
+                } else {
+                    seat.classList.add('available');
+                    seat.onclick = (function(num) {
+                        return function() { toggleSeat(num); };
+                    })(seatNum);
+                }
+
+                seatMap.appendChild(seat);
+            }
+        }
+
+        async function loadSeats() {
+            showLoading('좌석 정보를 불러오는 중...');
+            try {
+                var response = await fetch('/api/seats/status');
+                if (!response.ok) {
+                    throw new Error('좌석 정보를 불러올 수 없습니다.');
+                }
+                var data = await response.json();
+                renderSeatMap(data);
+            } catch (error) {
+                renderSeatMap([]);
+                showToast(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function purchaseTickets() {
+            if (selectedSeat === null) {
+                showToast('좌석을 선택해주세요.');
+                return;
+            }
+
+            var btn = document.getElementById('purchaseBtn');
+            btn.classList.add('loading');
+            btn.disabled = true;
+            showLoading('구매 처리 중...');
+
+            try {
+                var response = await fetch('/api/ticket/purchase', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Queue-Token': token
+                    },
+                    body: JSON.stringify({ seatNumber: selectedSeat })
+                });
+
+                if (!response.ok) {
+                    var errorData = await response.json().catch(function() {
+                        return { message: '구매에 실패했습니다. 다시 시도해주세요.' };
+                    });
+                    throw new Error(errorData.message || '구매에 실패했습니다.');
+                }
+
+                var data = await response.json();
+                var ticketUuid = data.ticketUuid || data.uuid || data.id;
+
+                sessionStorage.setItem('purchasedSeat', String(selectedSeat));
+                sessionStorage.setItem('ticketUuid', ticketUuid);
+
+                hideLoading();
+                showToast('구매가 완료되었습니다!', true);
+
+                setTimeout(function() {
+                    window.location.href = '/confirmation?ticketUuid=' + encodeURIComponent(ticketUuid);
+                }, 500);
+
+            } catch (error) {
+                hideLoading();
+                showToast(error.message);
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                loadSeats();
+            }
+        }
+
+        function init() {
+            token = getQueryParam('token');
+            if (!token) {
+                showToast('유효하지 않은 접근입니다. 대기열 토큰이 없습니다.');
+                setTimeout(function() {
+                    window.location.href = '/';
+                }, 2000);
+                return;
+            }
+            loadSeats();
+        }
+
+        init();
+    </script>
+</body>
+</html>

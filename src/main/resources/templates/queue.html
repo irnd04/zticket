@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZTicket - 대기열</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            padding: 40px 30px;
+        }
+
+        .logo {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #6c63ff;
+            margin-bottom: 40px;
+            letter-spacing: -0.5px;
+        }
+
+        .logo span {
+            color: #e0e0e0;
+        }
+
+        /* WAITING state */
+        .waiting-section {
+            display: none;
+        }
+
+        .waiting-section.visible {
+            display: block;
+        }
+
+        .spinner-ring {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 30px;
+            position: relative;
+        }
+
+        .spinner-ring .ring {
+            width: 100%;
+            height: 100%;
+            border: 4px solid #2a2a4a;
+            border-top-color: #6c63ff;
+            border-right-color: #a855f7;
+            border-radius: 50%;
+            animation: spin 1.2s linear infinite;
+        }
+
+        .spinner-ring .rank-inside {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #6c63ff;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .queue-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .queue-rank {
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: #6c63ff;
+            margin: 16px 0;
+            line-height: 1;
+        }
+
+        .queue-rank span {
+            font-size: 1.2rem;
+            color: #9a95cb;
+            font-weight: 500;
+        }
+
+        .queue-desc {
+            color: #7a75aa;
+            font-size: 0.9rem;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: #2a2a4a;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #6c63ff, #a855f7);
+            border-radius: 3px;
+            animation: progress-pulse 2s ease-in-out infinite;
+            width: 30%;
+            transition: width 0.5s ease;
+        }
+
+        @keyframes progress-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+        }
+
+        .dots .dot {
+            width: 8px;
+            height: 8px;
+            background: #6c63ff;
+            border-radius: 50%;
+            animation: dot-bounce 1.4s ease-in-out infinite;
+        }
+
+        .dots .dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .dots .dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes dot-bounce {
+            0%, 80%, 100% {
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+            40% {
+                opacity: 1;
+                transform: scale(1.2);
+            }
+        }
+
+        /* ACTIVE state */
+        .active-section {
+            display: none;
+        }
+
+        .active-section.visible {
+            display: block;
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 24px;
+            background: linear-gradient(135deg, #6c63ff, #a855f7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pop-in 0.4s ease;
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0); opacity: 0; }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .success-icon svg {
+            width: 48px;
+            height: 48px;
+        }
+
+        .active-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .active-desc {
+            color: #9a95cb;
+            font-size: 0.95rem;
+        }
+
+        /* EXPIRED state */
+        .expired-section {
+            display: none;
+        }
+
+        .expired-section.visible {
+            display: block;
+        }
+
+        .expired-icon {
+            font-size: 4rem;
+            margin-bottom: 24px;
+            opacity: 0.6;
+        }
+
+        .expired-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ef4444;
+            margin-bottom: 12px;
+        }
+
+        .expired-desc {
+            color: #7a75aa;
+            font-size: 0.9rem;
+            margin-bottom: 30px;
+        }
+
+        .back-link {
+            display: inline-block;
+            background: rgba(108, 99, 255, 0.15);
+            color: #6c63ff;
+            text-decoration: none;
+            padding: 14px 36px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(108, 99, 255, 0.3);
+        }
+
+        .back-link:hover {
+            background: rgba(108, 99, 255, 0.25);
+        }
+
+        /* ERROR state */
+        .error-section {
+            display: none;
+        }
+
+        .error-section.visible {
+            display: block;
+        }
+
+        .error-message {
+            padding: 16px 20px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 10px;
+            color: #ef4444;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px 16px;
+            }
+            .queue-rank {
+                font-size: 2.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">Z<span>Ticket</span></div>
+
+        <!-- WAITING -->
+        <div class="waiting-section" id="waitingSection">
+            <div class="spinner-ring">
+                <div class="ring"></div>
+            </div>
+            <p class="queue-title">대기열에서 기다리고 있습니다</p>
+            <div class="queue-rank" id="queueRank">-<span>번</span></div>
+            <p class="queue-desc">
+                잠시만 기다려주세요.<br>
+                순서가 되면 자동으로 입장됩니다.
+            </p>
+            <div class="progress-track">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="dots">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        </div>
+
+        <!-- ACTIVE -->
+        <div class="active-section" id="activeSection">
+            <div class="success-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+            <h2 class="active-title">입장이 허용되었습니다!</h2>
+            <p class="active-desc">좌석 선택 페이지로 이동합니다...</p>
+        </div>
+
+        <!-- EXPIRED -->
+        <div class="expired-section" id="expiredSection">
+            <div class="expired-icon">&#9202;</div>
+            <h2 class="expired-title">대기열이 만료되었습니다</h2>
+            <p class="expired-desc">대기 시간이 초과되었습니다. 다시 대기열에 진입해주세요.</p>
+            <a href="/" class="back-link">메인으로 돌아가기</a>
+        </div>
+
+        <!-- ERROR -->
+        <div class="error-section" id="errorSection">
+            <div class="error-message" id="errorMessage">오류가 발생했습니다.</div>
+            <a href="/" class="back-link">메인으로 돌아가기</a>
+        </div>
+    </div>
+
+    <script>
+        var uuid = null;
+        var pollInterval = null;
+
+        function getQueryParam(name) {
+            var params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
+
+        function showSection(sectionId) {
+            var sections = ['waitingSection', 'activeSection', 'expiredSection', 'errorSection'];
+            for (var i = 0; i < sections.length; i++) {
+                var el = document.getElementById(sections[i]);
+                if (sections[i] === sectionId) {
+                    el.classList.add('visible');
+                } else {
+                    el.classList.remove('visible');
+                }
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            showSection('errorSection');
+            stopPolling();
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                var response = await fetch('/api/queue/status/' + encodeURIComponent(uuid));
+
+                if (!response.ok) {
+                    var errorData = await response.json().catch(function() {
+                        return { message: '상태 확인에 실패했습니다.' };
+                    });
+                    showError(errorData.message || '상태 확인에 실패했습니다.');
+                    return;
+                }
+
+                var data = await response.json();
+                var status = data.status;
+
+                if (status === 'WAITING') {
+                    showSection('waitingSection');
+                    var rank = data.rank || '-';
+                    document.getElementById('queueRank').innerHTML = rank + '<span>번</span>';
+
+                    // Animate progress bar based on rank (lower rank = more progress)
+                    var progressPercent = Math.max(10, Math.min(90, 100 - (rank * 0.5)));
+                    document.getElementById('progressBar').style.width = progressPercent + '%';
+
+                } else if (status === 'ACTIVE') {
+                    showSection('activeSection');
+                    stopPolling();
+                    setTimeout(function() {
+                        window.location.href = '/purchase?token=' + encodeURIComponent(uuid);
+                    }, 1000);
+
+                } else if (status === 'EXPIRED') {
+                    showSection('expiredSection');
+                    stopPolling();
+
+                } else {
+                    showError('알 수 없는 상태입니다: ' + status);
+                }
+            } catch (error) {
+                showError('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+            }
+        }
+
+        function init() {
+            uuid = getQueryParam('uuid');
+            if (!uuid) {
+                showError('유효하지 않은 접근입니다. 대기열 토큰이 없습니다.');
+                return;
+            }
+
+            showSection('waitingSection');
+            checkStatus();
+            pollInterval = setInterval(checkStatus, 2000);
+        }
+
+        init();
+    </script>
+</body>
+</html>

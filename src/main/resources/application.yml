@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: zticket
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/zticket?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    show-sql: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+zticket:
+  admission:
+    batch-size: 60
+    interval-ms: 1000
+    active-ttl-seconds: 300
+    max-active-users: 500
+  seat:
+    total-count: 500
+    hold-ttl-seconds: 300
+  sync:
+    interval-ms: 60000
