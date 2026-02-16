@@ -1,16 +1,16 @@
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
 spring:
   application:
     name: zticket
-
 
   datasource:
     url: jdbc:mysql://localhost:3306/zticket?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:
-      maximum-pool-size: 50
-      connection-timeout: 2000
 
   jpa:
     hibernate:
@@ -38,27 +38,32 @@ spring:
 
   data:
     redis:
-      host: localhost
+      host: 127.0.0.1
       port: 6379
+      lettuce:
+        metrics: true
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus,metrics
+        include: health,prometheus,metrics,env,conditions,beans
   endpoint:
     health:
       show-details: always
   metrics:
     tags:
       application: zticket
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 zticket:
   admission:
-    batch-size: 500
+    batch-size: 200
     interval-ms: 1000
     active-ttl-seconds: 300
-    max-active-users: 500
+    max-active-users: 200
   seat:
     total-count: 50
     hold-ttl-seconds: 300

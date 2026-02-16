@@ -2,7 +2,7 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ZTicket - 좌석 선택</title>
     <style>
         * {
@@ -46,7 +46,7 @@
         }
 
         .main-content {
-            max-width: 1100px;
+            max-width: 700px;
             margin: 0 auto;
             padding: 30px 20px 120px;
         }
@@ -83,12 +83,12 @@
         .legend-box {
             width: 20px;
             height: 20px;
-            border-radius: 4px;
+            border-radius: 6px;
         }
 
         .legend-box.available {
-            background: #3a3a5c;
-            border: 1px solid #5a5a7c;
+            background: #2a2a4a;
+            border: 1px solid #4a4a6c;
         }
 
         .legend-box.selected {
@@ -105,68 +105,76 @@
 
         /* Stage */
         .stage {
-            background: linear-gradient(180deg, rgba(108, 99, 255, 0.2) 0%, rgba(108, 99, 255, 0.05) 100%);
-            border: 1px solid rgba(108, 99, 255, 0.3);
-            border-radius: 10px 10px 40px 40px;
-            padding: 14px;
+            background: linear-gradient(180deg, rgba(108, 99, 255, 0.15) 0%, rgba(108, 99, 255, 0.03) 100%);
+            border: 1px solid rgba(108, 99, 255, 0.25);
+            border-radius: 8px 8px 50% 50%;
+            padding: 16px;
             text-align: center;
             color: #6c63ff;
             font-weight: 700;
-            font-size: 1rem;
-            letter-spacing: 4px;
-            margin-bottom: 30px;
+            font-size: 0.9rem;
+            letter-spacing: 6px;
+            margin-bottom: 40px;
         }
 
         /* Seat map */
-        .seat-map-wrapper {
-            overflow-x: auto;
-            padding-bottom: 10px;
+        .seat-map {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: center;
         }
 
-        .seat-map {
-            display: grid;
-            gap: 4px;
-            min-width: 300px;
-            margin: 0 auto;
+        .seat-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .row-label {
+            width: 28px;
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #5a5a7c;
+        }
+
+        .row-seats {
+            display: flex;
+            gap: 6px;
         }
 
         .seat {
-            aspect-ratio: 1;
-            border-radius: 4px;
-            font-size: 0.55rem;
+            width: 48px;
+            height: 42px;
+            border-radius: 8px 8px 4px 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             transition: all 0.15s ease;
             user-select: none;
-            position: relative;
-            min-width: 0;
         }
 
         .seat.available {
-            background: #3a3a5c;
-            border: 1px solid #5a5a7c;
+            background: #2a2a4a;
+            border: 1px solid #4a4a6c;
+            color: #7a75aa;
         }
 
         .seat.available:hover {
-            background: #4a4a6c;
+            background: #3a3a5c;
             border-color: #6c63ff;
-            transform: scale(1.15);
-            z-index: 10;
+            color: #b0adda;
         }
 
         .seat.selected {
             background: #6c63ff;
             border: 1px solid #8a83ff;
             color: #ffffff;
-            font-weight: 700;
-        }
-
-        .seat.selected:hover {
-            background: #5a53e0;
-            transform: scale(1.15);
-            z-index: 10;
+            box-shadow: 0 2px 12px rgba(108, 99, 255, 0.4);
         }
 
         .seat.held {
@@ -181,13 +189,6 @@
             border: 1px solid #f87171;
             cursor: not-allowed;
             color: #1a1a2e;
-        }
-
-        /* Row labels */
-        .row-labels {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
         }
 
         /* Bottom bar */
@@ -283,7 +284,7 @@
             font-size: 0.95rem;
         }
 
-        /* Error toast */
+        /* Toast */
         .toast {
             position: fixed;
             top: 80px;
@@ -312,29 +313,47 @@
             background: rgba(34, 197, 94, 0.95);
         }
 
-        /* Row number column */
-        .seat-container {
+        /* Column numbers */
+        .col-numbers {
             display: flex;
-            gap: 10px;
+            gap: 6px;
+            margin-left: 36px;
+            margin-bottom: 6px;
         }
 
-        .row-numbers {
-            display: grid;
-            gap: 4px;
-            min-width: 28px;
-        }
-
-        .row-num {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .col-num {
+            width: 48px;
+            text-align: center;
             font-size: 0.7rem;
-            color: #5a5a7c;
+            color: #4a4a6c;
             font-weight: 600;
-            aspect-ratio: 1;
         }
 
-        @media (max-width: 768px) {
+        @media (max-width: 640px) {
+            .seat {
+                width: 36px;
+                height: 32px;
+                font-size: 0.65rem;
+                border-radius: 6px 6px 3px 3px;
+            }
+            .row-seats {
+                gap: 4px;
+            }
+            .seat-map {
+                gap: 6px;
+            }
+            .col-numbers {
+                gap: 4px;
+                margin-left: 32px;
+            }
+            .col-num {
+                width: 36px;
+                font-size: 0.6rem;
+            }
+            .row-label {
+                width: 24px;
+                font-size: 0.75rem;
+            }
             .bottom-bar {
                 flex-direction: column;
                 gap: 10px;
@@ -342,9 +361,6 @@
             }
             .purchase-btn {
                 width: 100%;
-            }
-            .seat {
-                font-size: 0;
             }
         }
     </style>
@@ -378,14 +394,9 @@
             </div>
         </div>
 
-        <div class="stage">STAGE</div>
+        <div class="stage">S T A G E</div>
 
-        <div class="seat-map-wrapper">
-            <div class="seat-container">
-                <div class="row-numbers" id="rowNumbers"></div>
-                <div class="seat-map" id="seatMap"></div>
-            </div>
-        </div>
+        <div id="seatMap" class="seat-map"></div>
     </div>
 
     <div class="bottom-bar">
@@ -403,6 +414,8 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        var COLS = 10;
+        var ROW_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
         var token = null;
         var selectedSeat = null;
         var seatStatusMap = {};
@@ -410,6 +423,12 @@
         function getQueryParam(name) {
             var params = new URLSearchParams(window.location.search);
             return params.get(name);
+        }
+
+        function seatLabel(seatNumber) {
+            var row = Math.floor((seatNumber - 1) / COLS);
+            var col = ((seatNumber - 1) % COLS) + 1;
+            return ROW_LABELS[row] + col;
         }
 
         function showLoading(text) {
@@ -431,7 +450,8 @@
         }
 
         function updateSelectedInfo() {
-            document.getElementById('selectedCount').textContent = selectedSeat ? selectedSeat + '번' : '-';
+            document.getElementById('selectedCount').textContent =
+                selectedSeat ? seatLabel(selectedSeat) : '-';
             document.getElementById('purchaseBtn').disabled = selectedSeat === null;
         }
 
@@ -441,7 +461,6 @@
                 return;
             }
 
-            // Deselect previous seat
             if (selectedSeat !== null) {
                 var prevEl = document.getElementById('seat-' + selectedSeat);
                 if (prevEl) {
@@ -463,26 +482,12 @@
 
         function renderSeatMap(seatStatuses) {
             var seatMap = document.getElementById('seatMap');
-            var rowNumbers = document.getElementById('rowNumbers');
             seatMap.innerHTML = '';
-            rowNumbers.innerHTML = '';
 
             var totalSeats = (seatStatuses && seatStatuses.length) || 0;
             if (totalSeats === 0) return;
 
-            // Calculate grid dimensions dynamically
-            var cols = Math.min(25, Math.max(5, Math.ceil(Math.sqrt(totalSeats * 2))));
-            var rows = Math.ceil(totalSeats / cols);
-
-            seatMap.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
-
-            // Generate row labels (A, B, C, ...)
-            for (var r = 0; r < rows; r++) {
-                var rowNum = document.createElement('div');
-                rowNum.className = 'row-num';
-                rowNum.textContent = String.fromCharCode(65 + (r % 26));
-                rowNumbers.appendChild(rowNum);
-            }
+            var rows = Math.ceil(totalSeats / COLS);
 
             // Build status map
             seatStatusMap = {};
@@ -491,28 +496,58 @@
                 seatStatusMap[s.seatNumber] = s.status;
             }
 
-            // Create seats
-            for (var seatNum = 1; seatNum <= totalSeats; seatNum++) {
-                var seat = document.createElement('div');
-                seat.id = 'seat-' + seatNum;
-                seat.className = 'seat';
-                seat.textContent = seatNum;
+            // Column numbers header
+            var colHeader = document.createElement('div');
+            colHeader.className = 'col-numbers';
+            for (var c = 1; c <= COLS; c++) {
+                var colNum = document.createElement('div');
+                colNum.className = 'col-num';
+                colNum.textContent = c;
+                colHeader.appendChild(colNum);
+            }
+            seatMap.appendChild(colHeader);
 
-                var status = seatStatusMap[seatNum] || 'available';
-                status = status.toLowerCase();
+            // Seat rows
+            for (var r = 0; r < rows; r++) {
+                var rowDiv = document.createElement('div');
+                rowDiv.className = 'seat-row';
 
-                if (status === 'held') {
-                    seat.classList.add('held');
-                } else if (status === 'paid') {
-                    seat.classList.add('paid');
-                } else {
-                    seat.classList.add('available');
-                    seat.onclick = (function(num) {
-                        return function() { toggleSeat(num); };
-                    })(seatNum);
+                var rowLabel = document.createElement('div');
+                rowLabel.className = 'row-label';
+                rowLabel.textContent = ROW_LABELS[r] || String.fromCharCode(65 + r);
+                rowDiv.appendChild(rowLabel);
+
+                var rowSeats = document.createElement('div');
+                rowSeats.className = 'row-seats';
+
+                for (var c = 0; c < COLS; c++) {
+                    var seatNum = r * COLS + c + 1;
+                    if (seatNum > totalSeats) break;
+
+                    var seat = document.createElement('div');
+                    seat.id = 'seat-' + seatNum;
+                    seat.className = 'seat';
+                    seat.textContent = ROW_LABELS[r] + (c + 1);
+
+                    var status = seatStatusMap[seatNum] || 'available';
+                    status = status.toLowerCase();
+
+                    if (status === 'held') {
+                        seat.classList.add('held');
+                    } else if (status === 'paid') {
+                        seat.classList.add('paid');
+                    } else {
+                        seat.classList.add('available');
+                        seat.onclick = (function(num) {
+                            return function() { toggleSeat(num); };
+                        })(seatNum);
+                    }
+
+                    rowSeats.appendChild(seat);
                 }
 
-                seatMap.appendChild(seat);
+                rowDiv.appendChild(rowSeats);
+                seatMap.appendChild(rowDiv);
             }
         }
 
@@ -564,7 +599,7 @@
                 var data = await response.json();
                 var ticketUuid = data.ticketUuid || data.uuid || data.id;
 
-                sessionStorage.setItem('purchasedSeat', String(selectedSeat));
+                sessionStorage.setItem('purchasedSeat', seatLabel(selectedSeat));
                 sessionStorage.setItem('ticketUuid', ticketUuid);
 
                 hideLoading();

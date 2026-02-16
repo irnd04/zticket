@@ -13,13 +13,10 @@ const queueWaitTime = new Trend('queue_wait_time', true);
 export const options = {
     scenarios: {
         ticket_rush: {
-            executor: 'ramping-vus',
-            startVUs: 0,
-            stages: [
-                { duration: '5s', target: 10000 },   // 5초간 100명 진입
-                { duration: '60s', target: 10000 },   // 60초간 유지 (대기열 소화)
-                { duration: '5s', target: 0 },       // 정리
-            ],
+            executor: 'per-vu-iterations',
+            vus: 5000,
+            iterations: 1,          // VU당 1회만 실행
+            maxDuration: '5m',
         },
     },
     thresholds: {
