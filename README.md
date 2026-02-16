@@ -40,27 +40,16 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 
 ## 실행 방법
 
-### Docker Compose (권장)
-
 ```bash
-# 전체 실행 (MySQL + Redis + App)
+# 1. 인프라 실행 (MySQL + Redis + Prometheus + Grafana)
 docker compose up -d
-
-# 브라우저 접속
-open http://localhost:8080
-```
-
-### 로컬 개발
-
-```bash
-# 1. 인프라만 실행 (MySQL + Redis)
-docker compose up -d mysql redis
 
 # 2. 애플리케이션 실행
 ./gradlew bootRun
 
-# 3. 브라우저 접속
-open http://localhost:8080
+# 3. 접속
+open http://localhost:8080   # ZTicket
+open http://localhost:3000   # Grafana (admin / admin)
 ```
 
 ---
@@ -706,21 +695,7 @@ Prometheus (:9090)
 Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 ```
 
-### 실행
-
-```bash
-# 전체 인프라 실행 (MySQL + Redis + Prometheus + Grafana)
-docker compose up -d
-
-# 앱 실행
-./gradlew bootRun
-
-# 접속
-open http://localhost:3000   # Grafana (admin / admin)
-open http://localhost:9090   # Prometheus
-```
-
-Grafana 접속 시 `ZTicket Monitoring` 대시보드가 자동으로 프로비저닝되어 있습니다.
+`docker compose up -d` + `./gradlew bootRun` 후 [localhost:3000](http://localhost:3000)에서 `ZTicket Monitoring` 대시보드가 자동 프로비저닝되어 있습니다.
 
 ### 대시보드 패널
 
@@ -750,19 +725,11 @@ Grafana 접속 시 `ZTicket Monitoring` 대시보드가 자동으로 프로비�
 ### 부하 테스트 중 확인 포인트
 
 ```bash
-# 1. 인프라 + 모니터링 실행
-docker compose up -d
-
-# 2. 앱 실행
-./gradlew bootRun
-
-# 3. Grafana 대시보드 열기
-open http://localhost:3000
-
-# 4. k6 부하 테스트 실행
+# 부하 테스트 실행 (앱이 실행 중인 상태에서)
 k6 run k6/load-test.js
 
-# 5. Grafana에서 실시간 병목 확인
+# Grafana에서 실시간 병목 확인
+open http://localhost:3000
 ```
 
 | 증상 | 대시보드에서 보이는 것 | 원인 |
