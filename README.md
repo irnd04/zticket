@@ -19,6 +19,7 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 9. [Redis 키 설계](#redis-키-설계)
 10. [설정값](#설정값)
 11. [부하 테스트 (k6)](#부하-테스트-k6)
+12. [모니터링 (Prometheus + Grafana)](#모니터링-prometheus--grafana)
 
 ---
 
@@ -465,8 +466,8 @@ kr.jemi.zticket
 │
 ├── queue/                                      대기열 도메인 (독립)
 │   ├── domain/
-│   │   ├── QueueToken.java                     record(uuid, rank)
-│   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, EXPIRED
+│   │   ├── QueueToken.java                     record(uuid, rank, status)
+│   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, SOLD_OUT
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
@@ -505,9 +506,10 @@ kr.jemi.zticket
 │   └── adapter/
 │       ├── in/
 │       │   └── web/
-│       │       ├── SeatApiController.java      /api/seats
+│       │       ├── SeatApiController.java      /api/seats, /api/seats/available-count
 │       │       └── dto/
-│       │           └── SeatStatusResponse.java
+│       │           ├── SeatStatusResponse.java
+│       │           └── AvailableCountResponse.java
 │       └── out/
 │           └── redis/
 │               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(Lua)
@@ -551,8 +553,7 @@ kr.jemi.zticket
 │       └── ErrorResponse.java
 │
 └── config/
-    ├── RedisConfig.java                        paySeatScript 빈 등록
-    └── SchedulerConfig.java                    스케줄러 스레드 풀 (2)
+    └── RedisConfig.java                        paySeatScript 빈 등록
 ```
 
 ### 도메인 간 의존 관계
@@ -589,7 +590,8 @@ src/main/resources/templates/
 |--------|------|------|------|
 | POST | `/api/queues/tokens` | 대기열 진입, UUID 토큰 반환 | 없음 |
 | GET | `/api/queues/tokens/{uuid}` | 대기 순번/상태 조회 | 없음 |
-| GET | `/api/seats` | 전체 좌석 현황 (500석 일괄 조회) | 없음 |
+| GET | `/api/seats` | 전체 좌석 현황 조회 | 없음 |
+| GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 2초 TTL) | 없음 |
 | POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
 
 ### 구매 요청/응답 예시
@@ -689,3 +691,86 @@ k6 run -e BASE_URL=http://localhost:8080 k6/load-test.js
 | `purchase_success` | 구매 성공 수 |
 | `purchase_fail` | 구매 실패 수 (좌석 충돌 등) |
 | `queue_wait_time` | 대기열 진입 → ACTIVE까지 소요시간 |
+
+---
+
+## 모니터링 (Prometheus + Grafana)
+
+Spring Boot Actuator + Micrometer로 메트릭을 수집하고, Prometheus + Grafana로 시각화합니다.
+
+### 구성
+
+```
+App (Actuator /actuator/prometheus)
+    │
+    │  5초 주기 스크래핑
+    ▼
+Prometheus (:9090)
+    │
+    │  데이터소스
+    ▼
+Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
+```
+
+### 실행
+
+```bash
+# 전체 인프라 실행 (MySQL + Redis + Prometheus + Grafana)
+docker compose up -d
+
+# 앱 실행
+./gradlew bootRun
+
+# 접속
+open http://localhost:3000   # Grafana (admin / admin)
+open http://localhost:9090   # Prometheus
+```
+
+Grafana 접속 시 `ZTicket Monitoring` 대시보드가 자동으로 프로비저닝되어 있습니다.
+
+### 대시보드 패널
+
+| 패널 | 확인할 수 있는 것 |
+|------|-------------------|
+| HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
+| HTTP Response Time p95 | 95% 응답 시간 — 대부분의 사용자 체감 지연 |
+| HTTP Response Time p99 | 99% 응답 시간 — 꼬리 지연(tail latency) |
+| HTTP Error Rate | 4xx/5xx 에러 비율 |
+| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
+| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
+| HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
+| GC Pause Time | GC 멈춤 시간 — GC로 인한 응답 지연 감지 |
+
+### Actuator 엔드포인트
+
+| Path | 설명 |
+|------|------|
+| `/actuator/prometheus` | Prometheus 포맷 메트릭 |
+| `/actuator/health` | 앱 + DB + Redis 헬스체크 |
+| `/actuator/metrics` | 전체 메트릭 목록 |
+
+### 부하 테스트 중 확인 포인트
+
+```bash
+# 1. 인프라 + 모니터링 실행
+docker compose up -d
+
+# 2. 앱 실행
+./gradlew bootRun
+
+# 3. Grafana 대시보드 열기
+open http://localhost:3000
+
+# 4. k6 부하 테스트 실행
+k6 run k6/load-test.js
+
+# 5. Grafana에서 실시간 병목 확인
+```
+
+| 증상 | 대시보드에서 보이는 것 | 원인 |
+|------|----------------------|------|
+| 응답 느림 | p95/p99 급등 | Redis/DB 병목 또는 GC |
+| 에러 급증 | Error Rate 상승 | 커넥션풀 고갈, 타임아웃 |
+| 메모리 부족 | Heap 사용량 max 근접 | JVM 힙 부족, GC 빈번 |
+| DB 병목 | HikariCP pending 증가 | 커넥션풀 사이즈 부족 |
+| 스레드 고갈 | Threads 급증 | Tomcat 스레드풀 부족 |
