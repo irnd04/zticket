@@ -26,7 +26,8 @@ public class TicketJpaAdapter implements TicketPersistencePort {
                             existing.update(ticket);
                             return existing;
                         })
-                        .orElseGet(() -> TicketJpaEntity.fromDomain(ticket))
+                        .orElseThrow(() -> new IllegalStateException(
+                                "티켓을 찾을 수 없습니다: id=" + ticket.getId()))
                 : TicketJpaEntity.fromDomain(ticket);
         return repository.save(entity).toDomain();
     }
