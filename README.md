@@ -138,7 +138,6 @@ open http://localhost:8080
   │                    │                      │                     │
   │                    │── 4. paySeat ───────▶│                     │
   │                    │   Lua: held→paid      │                     │
-  │                    │        + PERSIST      │                     │
   │                    │                      │                     │
   │                    │── 5. sync() + save ──│────────────────────▶│
   │                    │                      │   UPDATE SYNCED     │
@@ -154,8 +153,8 @@ SyncScheduler (매 1분)
   │
   └── 각 PAID 티켓에 대해:
         │
-        ├── Redis SET seat:{n} "paid:{token}" + PERSIST
-        │   (held/null 어떤 상태든 paid로 덮어씀)
+        ├── Redis SET seat:{n} "paid:{token}"
+        │   (held/null 어떤 상태든 paid로 덮어씀, SET이 기존 TTL 자동 제거)
         │
         └── DB UPDATE status=SYNCED
 ```
@@ -296,8 +295,7 @@ Boolean success = redisTemplate.opsForValue()
 -- pay-seat.lua: held → paid 원자적 전환
 local current = redis.call('GET', KEYS[1])
 if current ~= ARGV[1] then return 1 end    -- 내 hold가 아님
-redis.call('SET', KEYS[1], ARGV[2])
-redis.call('PERSIST', KEYS[1])
+redis.call('SET', KEYS[1], ARGV[2])         -- SET이 기존 TTL 자동 제거
 return 0
 ```
 
@@ -314,7 +312,7 @@ return 0
 ```
 ① Redis SET seat:7 "held:{token}" NX EX 300    ← 임시 선점, TTL 5분
 ② DB INSERT ticket (status=PAID)                ← 결제 완료 기록
-③ Redis SET seat:7 "paid:{token}" PERSIST       ← 영구 확정, TTL 제거
+③ Redis SET seat:7 "paid:{token}"               ← 영구 확정 (SET이 TTL 자동 제거)
 ④ DB UPDATE ticket SET status=SYNCED            ← 동기화 완료
 ```
 
@@ -348,7 +346,8 @@ public Ticket save(Ticket ticket) {
     TicketJpaEntity entity = ticket.getId() != null
             ? repository.findById(ticket.getId())
                     .map(existing -> { existing.update(ticket); return existing; })
-                    .orElseGet(() -> TicketJpaEntity.fromDomain(ticket))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "티켓을 찾을 수 없습니다: id=" + ticket.getId()))
             : TicketJpaEntity.fromDomain(ticket);
     return repository.save(entity).toDomain();
 }
@@ -463,6 +462,10 @@ kr.jemi.zticket
 │   │   ├── QueueToken.java                     record(uuid, rank)
 │   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, EXPIRED
 │   │
+│   ├── seat/
+│   │   ├── SeatStatus.java                    enum: AVAILABLE, HELD, PAID, UNKNOWN
+│   │   └── SeatStatuses.java                  좌석 상태 맵 래퍼 (Map<Integer, SeatStatus>)
+│   │
 │   └── ticket/
 │       ├── Ticket.java                         도메인 엔티티 (id, uuid, seatNumber, status, queueToken, createdAt, updatedAt)
 │       └── TicketStatus.java                   enum: HELD, PAID, SYNCED
@@ -532,7 +535,7 @@ kr.jemi.zticket
 
 ```
 src/main/resources/scripts/
-└── pay-seat.lua          held → paid 원자적 전환 + PERSIST
+└── pay-seat.lua          held → paid 원자적 전환 (SET이 TTL 자동 제거)
 ```
 
 ### Thymeleaf 화면
@@ -583,7 +586,7 @@ Content-Type: application/json
 | `waiting_queue` | Sorted Set | member=UUID, score=timestamp | 없음 | FIFO 대기열 |
 | `active_user:{uuid}` | String | `"1"` | 300초 | 입장 허용 상태 |
 | `seat:{seatNumber}` | String | `"held:{token}"` | 300초 | 좌석 임시 선점 |
-| `seat:{seatNumber}` | String | `"paid:{token}"` | 없음(PERSIST) | 좌석 결제 확정 |
+| `seat:{seatNumber}` | String | `"paid:{token}"` | 없음 (SET 자동 제거) | 좌석 결제 확정 |
 
 ---
 

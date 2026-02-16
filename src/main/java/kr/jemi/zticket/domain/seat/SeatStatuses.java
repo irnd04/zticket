@@ -2,7 +2,6 @@ package kr.jemi.zticket.domain.seat;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 public class SeatStatuses {
 
@@ -13,7 +12,11 @@ public class SeatStatuses {
     }
 
     public SeatStatus of(int seatNumber) {
-        return statuses.getOrDefault(seatNumber, SeatStatus.AVAILABLE);
+        SeatStatus status = statuses.get(seatNumber);
+        if (status == null) {
+            throw new IllegalArgumentException("존재하지 않는 좌석 번호: " + seatNumber);
+        }
+        return status;
     }
 
     public List<Integer> seatNumbers() {
