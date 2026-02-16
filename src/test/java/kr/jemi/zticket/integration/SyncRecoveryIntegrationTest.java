@@ -1,9 +1,9 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.application.port.in.SyncTicketUseCase;
-import kr.jemi.zticket.application.port.out.TicketPersistencePort;
-import kr.jemi.zticket.domain.ticket.Ticket;
-import kr.jemi.zticket.domain.ticket.TicketStatus;
+import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
+import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.domain.Ticket;
+import kr.jemi.zticket.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

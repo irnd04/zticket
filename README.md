@@ -218,13 +218,16 @@ SyncScheduler (매 1분)
 
 ### 1. 아키텍처: 헥사고날 vs 레이어드
 
-#### 선택: 헥사고날 아키텍처 (Ports and Adapters)
+#### 선택: 헥사고날 아키텍처 (Ports and Adapters) + 도메인 단위 패키지
 
 ```
-domain/          → 순수 Java (QueueToken, Ticket, TicketStatus)
-application/     → 유스케이스 오케스트레이션 + Port 인터페이스 (TicketService, SeatHoldPort)
-adapter/in/      → Controller, Scheduler (외부 → 도메인)
-adapter/out/     → Redis Adapter, JPA Adapter (도메인 → 외부)
+queue/           → 대기열 도메인 (domain + application + adapter)
+seat/            → 좌석 도메인 (domain + application + adapter)
+ticket/          → 티켓 도메인 (domain + application + adapter)
+각 도메인 내:
+  domain/        → 순수 Java (QueueToken, Ticket, SeatStatus)
+  application/   → 유스케이스 오케스트레이션 + Port 인터페이스
+  adapter/       → Controller, Scheduler, Redis/JPA Adapter
 ```
 
 **채택 이유**:
@@ -453,82 +456,111 @@ scheduler.setPoolSize(2);  // AdmissionScheduler + SyncScheduler
 
 ## 패키지 구조
 
+도메인(queue, seat, ticket)이 최상위 패키지가 되고, 각 도메인 안에 레이어(domain, application, adapter)가 배치되는 구조입니다.
+
 ```
 kr.jemi.zticket
 ├── ZticketApplication.java                     @EnableScheduling
 │
-├── domain/                                     순수 Java, 프레임워크 의존 없음
-│   ├── queue/
+├── queue/                                      대기열 도메인 (독립)
+│   ├── domain/
 │   │   ├── QueueToken.java                     record(uuid, rank)
 │   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, EXPIRED
-│   │
-│   ├── seat/
-│   │   ├── SeatStatus.java                    enum: AVAILABLE, HELD, PAID, UNKNOWN
-│   │   └── SeatStatuses.java                  좌석 상태 맵 래퍼 (Map<Integer, SeatStatus>)
-│   │
-│   └── ticket/
-│       ├── Ticket.java                         도메인 엔티티 (id, uuid, seatNumber, status, queueToken, createdAt, updatedAt)
-│       └── TicketStatus.java                   enum: HELD, PAID, SYNCED
-│
-├── application/                                유스케이스 오케스트레이션 + Port 인터페이스
-│   ├── port/
-│   │   ├── in/
-│   │   │   ├── EnterQueueUseCase.java
-│   │   │   ├── GetQueueStatusUseCase.java
-│   │   │   ├── AdmitUsersUseCase.java
-│   │   │   ├── PurchaseTicketUseCase.java      purchase(queueToken, seatNumber)
-│   │   │   ├── GetSeatsUseCase.java
-│   │   │   └── SyncTicketUseCase.java          syncPaidTickets()
-│   │   └── out/
-│   │       ├── WaitingQueuePort.java
-│   │       ├── ActiveUserPort.java
-│   │       ├── SeatHoldPort.java               hold/pay/release/setPaid/getStatuses
-│   │       └── TicketPersistencePort.java      save/findByUuid/findByStatus
-│   │
-│   ├── queue/
+│   ├── application/
+│   │   ├── port/
+│   │   │   ├── in/
+│   │   │   │   ├── EnterQueueUseCase.java
+│   │   │   │   ├── GetQueueStatusUseCase.java
+│   │   │   │   └── AdmitUsersUseCase.java
+│   │   │   └── out/
+│   │   │       ├── WaitingQueuePort.java
+│   │   │       └── ActiveUserPort.java
 │   │   └── QueueService.java
-│   └── ticket/
-│       ├── TicketService.java                  5단계 구매 오케스트레이션
-│       └── TicketSyncService.java              PAID → Redis 동기화
+│   └── adapter/
+│       ├── in/
+│       │   ├── web/
+│       │   │   ├── QueueApiController.java     /api/queue/**
+│       │   │   └── dto/
+│       │   │       ├── TokenResponse.java
+│       │   │       └── QueueStatusResponse.java
+│       │   └── scheduler/
+│       │       └── AdmissionScheduler.java     1초 배치 입장
+│       └── out/
+│           └── redis/
+│               ├── WaitingQueueRedisAdapter.java
+│               └── ActiveUserRedisAdapter.java
 │
-├── adapter/
-│   ├── in/                                     Driving Adapter
-│   │   ├── web/
-│   │   │   ├── QueueApiController.java         /api/queue/**
-│   │   │   ├── TicketApiController.java        /api/ticket/**
-│   │   │   ├── SeatApiController.java          /api/seats/**
-│   │   │   ├── PageController.java             Thymeleaf 뷰
-│   │   │   └── dto/
-│   │   │       ├── TokenResponse.java
-│   │   │       ├── QueueStatusResponse.java
-│   │   │       ├── PurchaseRequest.java        { seatNumber: 7 }
-│   │   │       ├── PurchaseResponse.java
-│   │   │       └── SeatStatusResponse.java
-│   │   └── scheduler/
-│   │       ├── AdmissionScheduler.java         1초 배치 입장
-│   │       └── SyncScheduler.java              1분 PAID 동기화
-│   │
-│   └── out/                                    Driven Adapter
-│       ├── redis/
-│       │   ├── WaitingQueueRedisAdapter.java
-│       │   ├── ActiveUserRedisAdapter.java
-│       │   └── SeatHoldRedisAdapter.java       holdSeat(setIfAbsent) + paySeat(Lua)
-│       └── persistence/
-│           ├── TicketJpaEntity.java             seatNumber UNIQUE
-│           ├── TicketJpaRepository.java
-│           └── TicketJpaAdapter.java            Upsert 패턴 (findById 기반)
+├── seat/                                       좌석 도메인 (독립)
+│   ├── domain/
+│   │   ├── SeatStatus.java                     enum: AVAILABLE, HELD, PAID, UNKNOWN
+│   │   └── SeatStatuses.java                   좌석 상태 맵 래퍼
+│   ├── application/
+│   │   ├── port/
+│   │   │   ├── in/
+│   │   │   │   └── GetSeatsUseCase.java
+│   │   │   └── out/
+│   │   │       └── SeatHoldPort.java           hold/pay/release/setPaid/getStatuses
+│   │   └── SeatService.java                    좌석 현황 조회
+│   └── adapter/
+│       ├── in/
+│       │   └── web/
+│       │       ├── SeatApiController.java      /api/seats/**
+│       │       └── dto/
+│       │           └── SeatStatusResponse.java
+│       └── out/
+│           └── redis/
+│               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(Lua)
 │
-├── config/
-│   ├── RedisConfig.java                        paySeatScript 빈 등록
-│   └── SchedulerConfig.java                    스케줄러 스레드 풀 (2)
+├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
+│   ├── domain/
+│   │   ├── Ticket.java                         도메인 엔티티
+│   │   └── TicketStatus.java                   enum: HELD, PAID, SYNCED
+│   ├── application/
+│   │   ├── port/
+│   │   │   ├── in/
+│   │   │   │   ├── PurchaseTicketUseCase.java  purchase(queueToken, seatNumber)
+│   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
+│   │   │   └── out/
+│   │   │       └── TicketPersistencePort.java  save/findByUuid/findByStatus
+│   │   ├── TicketService.java                  5단계 구매 오케스트레이션
+│   │   └── TicketSyncService.java              PAID → Redis 동기화
+│   └── adapter/
+│       ├── in/
+│       │   ├── web/
+│       │   │   ├── TicketApiController.java    /api/ticket/**
+│       │   │   └── dto/
+│       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
+│       │   │       └── PurchaseResponse.java
+│       │   └── scheduler/
+│       │       └── SyncScheduler.java          1분 PAID 동기화
+│       └── out/
+│           └── persistence/
+│               ├── TicketJpaEntity.java         seatNumber UNIQUE
+│               ├── TicketJpaRepository.java
+│               └── TicketJpaAdapter.java        Upsert 패턴 (findById 기반)
 │
-└── common/
-    ├── exception/
-    │   ├── ErrorCode.java
-    │   ├── BusinessException.java
-    │   └── GlobalExceptionHandler.java
-    └── dto/
-        └── ErrorResponse.java
+├── common/
+│   ├── web/
+│   │   └── PageController.java                 Thymeleaf 뷰 (여러 도메인에 걸침)
+│   ├── exception/
+│   │   ├── ErrorCode.java
+│   │   ├── BusinessException.java
+│   │   └── GlobalExceptionHandler.java
+│   └── dto/
+│       └── ErrorResponse.java
+│
+└── config/
+    ├── RedisConfig.java                        paySeatScript 빈 등록
+    └── SchedulerConfig.java                    스케줄러 스레드 풀 (2)
+```
+
+### 도메인 간 의존 관계
+
+```
+ticket → queue (ActiveUserPort: 활성 사용자 검증)
+ticket → seat  (SeatHoldPort: 좌석 선점/결제)
+seat   → (독립)
+queue  → (독립)
 ```
 
 ### Lua Script

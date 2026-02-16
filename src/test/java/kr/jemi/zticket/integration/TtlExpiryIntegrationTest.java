@@ -1,12 +1,12 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
+import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import kr.jemi.zticket.domain.seat.SeatStatus;
+import kr.jemi.zticket.seat.domain.SeatStatus;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;

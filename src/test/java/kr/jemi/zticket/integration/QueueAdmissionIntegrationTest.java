@@ -1,10 +1,10 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.application.port.in.AdmitUsersUseCase;
-import kr.jemi.zticket.application.port.in.EnterQueueUseCase;
-import kr.jemi.zticket.application.port.in.GetQueueStatusUseCase;
-import kr.jemi.zticket.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.domain.queue.QueueToken;
+import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
+import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
+import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
+import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
+import kr.jemi.zticket.queue.domain.QueueToken;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

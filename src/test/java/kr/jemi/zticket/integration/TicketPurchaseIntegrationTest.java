@@ -1,15 +1,15 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.application.port.in.GetSeatsUseCase;
-import kr.jemi.zticket.application.port.in.PurchaseTicketUseCase;
-import kr.jemi.zticket.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.seat.application.port.in.GetSeatsUseCase;
+import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
+import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
-import kr.jemi.zticket.domain.seat.SeatStatus;
-import kr.jemi.zticket.domain.seat.SeatStatuses;
-import kr.jemi.zticket.domain.ticket.Ticket;
-import kr.jemi.zticket.domain.ticket.TicketStatus;
+import kr.jemi.zticket.seat.domain.SeatStatus;
+import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.ticket.domain.Ticket;
+import kr.jemi.zticket.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
