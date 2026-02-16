@@ -237,7 +237,7 @@
                 </div>
             </div>
             <div class="divider"></div>
-            <p class="seat-info">잔여 좌석 <strong>500</strong>석 | 선착순 판매</p>
+            <p class="seat-info">잔여 좌석 <strong th:text="${remainingSeats}">0</strong>석 | 선착순 판매</p>
         </div>
 
         <button class="enter-btn" id="enterBtn" onclick="enterQueue()">

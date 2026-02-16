@@ -84,7 +84,7 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
         activeUserPort.activate("token-1", 300);
         purchaseTicketUseCase.purchase("token-1", 3);
 
-        SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses(5);
+        SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses();
         assertThat(statuses.of(1)).isEqualTo(SeatStatus.AVAILABLE);
         assertThat(statuses.of(2)).isEqualTo(SeatStatus.AVAILABLE);
         assertThat(statuses.of(3)).isEqualTo(SeatStatus.PAID);

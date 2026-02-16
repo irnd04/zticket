@@ -4,5 +4,5 @@ import kr.jemi.zticket.seat.domain.SeatStatuses;
 
 public interface GetSeatsUseCase {
 
-    SeatStatuses getAllSeatStatuses(int totalSeats);
+    SeatStatuses getAllSeatStatuses();
 }

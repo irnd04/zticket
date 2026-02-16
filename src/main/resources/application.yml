@@ -27,6 +27,11 @@ spring:
         await-termination: true
         await-termination-period: 5s
 
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1,expireAfterWrite=2s
+
   data:
     redis:
       host: localhost
@@ -37,7 +42,7 @@ zticket:
     batch-size: 5
     interval-ms: 1000
     active-ttl-seconds: 300
-    max-active-users: 50
+    max-active-users: 100
   seat:
     total-count: 50
     hold-ttl-seconds: 300

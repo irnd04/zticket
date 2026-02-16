@@ -125,9 +125,8 @@
 
         .seat-map {
             display: grid;
-            grid-template-columns: repeat(25, 1fr);
             gap: 4px;
-            min-width: 650px;
+            min-width: 300px;
             margin: 0 auto;
         }
 
@@ -321,7 +320,6 @@
 
         .row-numbers {
             display: grid;
-            grid-template-rows: repeat(20, 1fr);
             gap: 4px;
             min-width: 28px;
         }
@@ -469,27 +467,32 @@
             seatMap.innerHTML = '';
             rowNumbers.innerHTML = '';
 
-            // Generate row labels (A-T for 20 rows)
-            var rowLabels = [];
-            for (var r = 0; r < 20; r++) {
-                rowLabels.push(String.fromCharCode(65 + r));
+            var totalSeats = (seatStatuses && seatStatuses.length) || 0;
+            if (totalSeats === 0) return;
+
+            // Calculate grid dimensions dynamically
+            var cols = Math.min(25, Math.max(5, Math.ceil(Math.sqrt(totalSeats * 2))));
+            var rows = Math.ceil(totalSeats / cols);
+
+            seatMap.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+
+            // Generate row labels (A, B, C, ...)
+            for (var r = 0; r < rows; r++) {
                 var rowNum = document.createElement('div');
                 rowNum.className = 'row-num';
-                rowNum.textContent = rowLabels[r];
+                rowNum.textContent = String.fromCharCode(65 + (r % 26));
                 rowNumbers.appendChild(rowNum);
             }
 
             // Build status map
             seatStatusMap = {};
-            if (seatStatuses && Array.isArray(seatStatuses)) {
-                for (var i = 0; i < seatStatuses.length; i++) {
-                    var s = seatStatuses[i];
-                    seatStatusMap[s.seatNumber] = s.status;
-                }
+            for (var i = 0; i < seatStatuses.length; i++) {
+                var s = seatStatuses[i];
+                seatStatusMap[s.seatNumber] = s.status;
             }
 
-            // Create 500 seats (20 rows x 25 cols)
-            for (var seatNum = 1; seatNum <= 500; seatNum++) {
+            // Create seats
+            for (var seatNum = 1; seatNum <= totalSeats; seatNum++) {
                 var seat = document.createElement('div');
                 seat.id = 'seat-' + seatNum;
                 seat.className = 'seat';
@@ -498,12 +501,7 @@
                 var status = seatStatusMap[seatNum] || 'available';
                 status = status.toLowerCase();
 
-                if (status === 'available') {
-                    seat.classList.add('available');
-                    seat.onclick = (function(num) {
-                        return function() { toggleSeat(num); };
-                    })(seatNum);
-                } else if (status === 'held') {
+                if (status === 'held') {
                     seat.classList.add('held');
                 } else if (status === 'paid') {
                     seat.classList.add('paid');
