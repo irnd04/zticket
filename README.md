@@ -606,24 +606,6 @@ src/main/resources/templates/
 | GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 2초 TTL) | 없음 |
 | POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
 
-### 구매 요청/응답 예시
-
-```
-POST /api/tickets
-X-Queue-Token: 550e8400-e29b-41d4-a716-446655440000
-Content-Type: application/json
-
-{ "seatNumber": 7 }
-```
-
-```json
-{
-    "ticketUuid": "a1b2c3d4-...",
-    "seatNumber": 7,
-    "status": "SYNCED"
-}
-```
-
 ---
 
 ## Redis 키 설계
