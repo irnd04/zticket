@@ -18,6 +18,7 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 8. [API 명세](#api-명세)
 9. [Redis 키 설계](#redis-키-설계)
 10. [설정값](#설정값)
+11. [부하 테스트 (k6)](#부하-테스트-k6)
 
 ---
 
@@ -641,3 +642,50 @@ zticket:
 **핵심 제약**:
 - `active-ttl-seconds(300초)` = `hold-ttl-seconds(300초)`: active 유저의 세션 시간과 좌석 선점 시간이 동일해야 합니다. active가 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있고, hold가 먼저 만료되면 구매 중 좌석이 풀립니다.
 - `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 이중 판매를 차단합니다.
+
+---
+
+## 부하 테스트 (k6)
+
+[k6](https://grafana.com/docs/k6/)를 사용하여 대기열 진입부터 티켓 구매까지의 전체 플로우를 부하 테스트합니다.
+
+### 설치
+
+```bash
+brew install k6
+```
+
+### 시나리오
+
+VU(가상 유저) 100명이 동시에 티켓 구매를 시도하는 시나리오입니다. 각 VU는 실제 사용자와 동일한 플로우를 수행합니다.
+
+```
+VU 100명 동시 시작
+    │
+    ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
+    │
+    ├── 2. GET /api/queues/tokens/{uuid}   2초 폴링, ACTIVE까지 대기
+    │       (반복)
+    │
+    ├── 3. GET /api/seats                  빈 좌석 조회
+    │
+    └── 4. POST /api/tickets               랜덤 빈 좌석 구매
+```
+
+### 실행
+
+```bash
+# 서버 실행 후
+k6 run k6/load-test.js
+
+# BASE_URL 변경
+k6 run -e BASE_URL=http://localhost:8080 k6/load-test.js
+```
+
+### 커스텀 메트릭
+
+| 메트릭 | 설명 |
+|--------|------|
+| `purchase_success` | 구매 성공 수 |
+| `purchase_fail` | 구매 실패 수 (좌석 충돌 등) |
+| `queue_wait_time` | 대기열 진입 → ACTIVE까지 소요시간 |
