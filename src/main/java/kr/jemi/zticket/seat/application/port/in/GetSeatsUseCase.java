@@ -1,8 +1,8 @@
 package kr.jemi.zticket.seat.application.port.in;
 
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seats;
 
 public interface GetSeatsUseCase {
 
-    SeatStatuses getAllSeatStatuses();
+    Seats getSeats(String token);
 }

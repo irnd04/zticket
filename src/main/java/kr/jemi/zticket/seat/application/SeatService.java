@@ -2,8 +2,7 @@ package kr.jemi.zticket.seat.application;
 
 import kr.jemi.zticket.seat.application.port.in.GetSeatsUseCase;
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
-import kr.jemi.zticket.seat.domain.SeatStatus;
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seats;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -24,7 +23,7 @@ public class SeatService implements GetSeatsUseCase {
     }
 
     @Override
-    public SeatStatuses getAllSeatStatuses() {
+    public Seats getSeats(String token) {
         List<Integer> allSeats = IntStream.rangeClosed(1, totalSeats)
                 .boxed()
                 .toList();
@@ -33,9 +32,9 @@ public class SeatService implements GetSeatsUseCase {
 
     @Cacheable("availableCount")
     public long getAvailableCount() {
-        SeatStatuses statuses = getAllSeatStatuses();
+        Seats statuses = getSeats(null);
         return statuses.seatNumbers().stream()
-                .filter(seat -> statuses.of(seat) == SeatStatus.AVAILABLE)
+                .filter(seat -> statuses.of(seat).isAvailableFor(null))
                 .count();
     }
 }

@@ -94,11 +94,7 @@
             background: #6c63ff;
         }
 
-        .legend-box.held {
-            background: #f59e0b;
-        }
-
-        .legend-box.paid {
+        .legend-box.unavailable {
             background: #ef4444;
         }
 
@@ -174,14 +170,7 @@
             box-shadow: 0 2px 12px rgba(108, 99, 255, 0.4);
         }
 
-        .seat.held {
-            background: #f59e0b;
-            border: 1px solid #fbbf24;
-            cursor: not-allowed;
-            color: #1a1a2e;
-        }
-
-        .seat.paid {
+        .seat.unavailable {
             background: #ef4444;
             border: 1px solid #f87171;
             cursor: not-allowed;
@@ -371,19 +360,15 @@
         <div class="legend">
             <div class="legend-item">
                 <div class="legend-box available"></div>
-                <span>선택 가능</span>
+                <span>결제 가능</span>
             </div>
             <div class="legend-item">
                 <div class="legend-box selected"></div>
                 <span>내가 선택</span>
             </div>
             <div class="legend-item">
-                <div class="legend-box held"></div>
-                <span>선택 중 (다른 사용자)</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-box paid"></div>
-                <span>판매 완료</span>
+                <div class="legend-box unavailable"></div>
+                <span>결제 불가</span>
             </div>
         </div>
 
@@ -450,7 +435,7 @@
 
         function toggleSeat(seatNumber) {
             var seatEl = document.getElementById('seat-' + seatNumber);
-            if (!seatEl || seatEl.classList.contains('held') || seatEl.classList.contains('paid')) {
+            if (!seatEl || seatEl.classList.contains('unavailable')) {
                 return;
             }
 
@@ -525,10 +510,8 @@
                     var status = seatStatusMap[seatNum] || 'available';
                     status = status.toLowerCase();
 
-                    if (status === 'held') {
-                        seat.classList.add('held');
-                    } else if (status === 'paid') {
-                        seat.classList.add('paid');
+                    if (status === 'unavailable') {
+                        seat.classList.add('unavailable');
                     } else {
                         seat.classList.add('available');
                         seat.onclick = (function(num) {
@@ -547,7 +530,9 @@
         async function loadSeats() {
             showLoading('좌석 정보를 불러오는 중...');
             try {
-                var response = await fetch('/api/seats');
+                var headers = {};
+                if (token) headers['X-Queue-Token'] = token;
+                var response = await fetch('/api/seats', { headers: headers });
                 if (!response.ok) {
                     throw new Error('좌석 정보를 불러올 수 없습니다.');
                 }

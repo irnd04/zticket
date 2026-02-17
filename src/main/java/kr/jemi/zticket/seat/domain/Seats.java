@@ -3,20 +3,20 @@ package kr.jemi.zticket.seat.domain;
 import java.util.List;
 import java.util.Map;
 
-public class SeatStatuses {
+public class Seats {
 
-    private final Map<Integer, SeatStatus> statuses;
+    private final Map<Integer, Seat> statuses;
 
-    public SeatStatuses(Map<Integer, SeatStatus> statuses) {
+    public Seats(Map<Integer, Seat> statuses) {
         this.statuses = Map.copyOf(statuses);
     }
 
-    public SeatStatus of(int seatNumber) {
-        SeatStatus status = statuses.get(seatNumber);
-        if (status == null) {
+    public Seat of(int seatNumber) {
+        Seat info = statuses.get(seatNumber);
+        if (info == null) {
             throw new IllegalArgumentException("존재하지 않는 좌석 번호: " + seatNumber);
         }
-        return status;
+        return info;
     }
 
     public List<Integer> seatNumbers() {

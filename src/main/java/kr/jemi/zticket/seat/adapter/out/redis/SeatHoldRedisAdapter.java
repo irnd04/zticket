@@ -9,8 +9,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
-import kr.jemi.zticket.seat.domain.SeatStatus;
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seat;
+import kr.jemi.zticket.seat.domain.Seats;
 
 @Component
 public class SeatHoldRedisAdapter implements SeatHoldPort {
@@ -26,9 +26,18 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
     @Override
     public boolean holdSeat(int seatNumber, String uuid, long ttlSeconds) {
         String key = KEY_PREFIX + seatNumber;
+        String value = "held:" + uuid;
         Boolean success = redisTemplate.opsForValue()
-                .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
-        return Boolean.TRUE.equals(success);
+                .setIfAbsent(key, value, ttlSeconds, TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(success)) {
+            return true;
+        }
+        String existing = redisTemplate.opsForValue().get(key);
+        if (value.equals(existing)) {
+            redisTemplate.expire(key, ttlSeconds, TimeUnit.SECONDS);
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -42,23 +51,16 @@ public class SeatHoldRedisAdapter implements SeatHoldPort {
     }
 
     @Override
-    public SeatStatuses getStatuses(List<Integer> seatNumbers) {
+    public Seats getStatuses(List<Integer> seatNumbers) {
         List<String> keys = seatNumbers.stream()
                 .map(n -> KEY_PREFIX + n)
                 .toList();
         List<String> values = redisTemplate.opsForValue().multiGet(keys);
-        Map<Integer, SeatStatus> statuses = new HashMap<>();
+        Map<Integer, Seat> statuses = new HashMap<>();
         for (int i = 0; i < seatNumbers.size(); i++) {
             String value = values != null ? values.get(i) : null;
-            statuses.put(seatNumbers.get(i), toSeatStatus(value));
+            statuses.put(seatNumbers.get(i), RedisSeat.from(value).toDomain());
         }
-        return new SeatStatuses(statuses);
-    }
-
-    private SeatStatus toSeatStatus(String value) {
-        if (value == null) return SeatStatus.AVAILABLE;
-        if (value.startsWith("held:")) return SeatStatus.HELD;
-        if (value.startsWith("paid:")) return SeatStatus.PAID;
-        return SeatStatus.UNKNOWN;
+        return new Seats(statuses);
     }
 }

@@ -3,9 +3,11 @@ package kr.jemi.zticket.seat.adapter.in.web;
 import kr.jemi.zticket.seat.adapter.in.web.dto.AvailableCountResponse;
 import kr.jemi.zticket.seat.adapter.in.web.dto.SeatStatusResponse;
 import kr.jemi.zticket.seat.application.SeatService;
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seat;
+import kr.jemi.zticket.seat.domain.Seats;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -20,10 +22,15 @@ public class SeatApiController {
     }
 
     @GetMapping("/api/seats")
-    public ResponseEntity<List<SeatStatusResponse>> getStatus() {
-        SeatStatuses seatStatuses = seatService.getAllSeatStatuses();
+    public ResponseEntity<List<SeatStatusResponse>> getStatus(
+            @RequestHeader("X-Queue-Token") String token) {
+        Seats seatStatuses = seatService.getSeats(token);
         List<SeatStatusResponse> response = seatStatuses.seatNumbers().stream()
-                .map(seat -> SeatStatusResponse.from(seat, seatStatuses.of(seat)))
+                .map(seatNo -> {
+                    Seat seat = seatStatuses.of(seatNo);
+                    boolean available = seat.isAvailableFor(token);
+                    return SeatStatusResponse.from(seatNo, available);
+                })
                 .toList();
         return ResponseEntity.ok(response);
     }

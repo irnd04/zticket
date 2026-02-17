@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
 
 import java.util.List;
@@ -39,7 +40,7 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
 
         assertThat(seatHoldPort.getStatuses(List.of(seatNumber)).of(seatNumber))
                 .as("좌석 available 복구")
-                .isEqualTo(SeatStatus.AVAILABLE);
+                .isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
     }
 
     @Test

@@ -1,16 +1,19 @@
 package kr.jemi.zticket.seat.application.port.out;
 
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seats;
 
 import java.util.List;
 
 public interface SeatHoldPort {
 
+    /**
+     * 좌석을 선점한다. 이미 같은 유저가 선점한 경우 TTL을 갱신하고 성공으로 처리한다.
+     */
     boolean holdSeat(int seatNumber, String uuid, long ttlSeconds);
 
     void paySeat(int seatNumber, String uuid);
 
     void releaseSeat(int seatNumber);
 
-    SeatStatuses getStatuses(List<Integer> seatNumbers);
+    Seats getStatuses(List<Integer> seatNumbers);
 }

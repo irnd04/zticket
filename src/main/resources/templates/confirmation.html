@@ -310,7 +310,7 @@
                 </div>
                 <div class="info-row">
                     <span class="info-label">좌석</span>
-                    <span class="info-value" id="seatInfo">-</span>
+                    <span class="info-value" id="seat">-</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">예매 일시</span>
@@ -363,7 +363,7 @@
 
             // sessionStorage에서 구매한 좌석 조회
             var seat = sessionStorage.getItem('purchasedSeat');
-            document.getElementById('seatInfo').textContent = seat ? seat + '번' : '-';
+            document.getElementById('seat').textContent = seat ? seat + '번' : '-';
 
             // 구매 일시 설정
             document.getElementById('purchaseDate').textContent = formatDate(new Date());

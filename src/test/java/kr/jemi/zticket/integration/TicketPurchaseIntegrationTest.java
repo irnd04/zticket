@@ -1,13 +1,14 @@
 package kr.jemi.zticket.integration;
 
 import kr.jemi.zticket.seat.application.port.in.GetSeatsUseCase;
+import kr.jemi.zticket.seat.domain.Seat;
+import kr.jemi.zticket.seat.domain.SeatStatus;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
-import kr.jemi.zticket.seat.domain.SeatStatus;
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seats;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -90,19 +91,19 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
 
     @Test
     @DisplayName("좌석 현황 조회: 구매 후 비동기 후처리 완료 시 paid 상태")
-    void getAllSeatStatuses_after_purchase() {
+    void getSeats_after_purchase() {
         activeUserPort.activate("token-1", 300);
         purchaseTicketUseCase.purchase("token-1", 3);
 
         await().atMost(5, SECONDS).untilAsserted(() -> {
-            SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses();
-            assertThat(statuses.of(3)).isEqualTo(SeatStatus.PAID);
+            Seats statuses = getSeatsUseCase.getSeats(null);
+            assertThat(statuses.of(3)).isEqualTo(new Seat(SeatStatus.PAID, "token-1"));
         });
 
-        SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses();
-        assertThat(statuses.of(1)).isEqualTo(SeatStatus.AVAILABLE);
-        assertThat(statuses.of(2)).isEqualTo(SeatStatus.AVAILABLE);
-        assertThat(statuses.of(4)).isEqualTo(SeatStatus.AVAILABLE);
-        assertThat(statuses.of(5)).isEqualTo(SeatStatus.AVAILABLE);
+        Seats statuses = getSeatsUseCase.getSeats(null);
+        assertThat(statuses.of(1)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
+        assertThat(statuses.of(2)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
+        assertThat(statuses.of(4)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
+        assertThat(statuses.of(5)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
     }
 }

@@ -1,8 +1,9 @@
 package kr.jemi.zticket.seat.application;
 
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
-import kr.jemi.zticket.seat.domain.SeatStatuses;
+import kr.jemi.zticket.seat.domain.Seats;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,19 +35,19 @@ class SeatServiceTest {
     @DisplayName("SeatHoldPort로부터 받은 상태를 그대로 반환한다")
     void shouldDelegateToSeatHoldPort() {
         // given
-        SeatStatuses portStatuses = new SeatStatuses(Map.of(
-                1, SeatStatus.HELD,
-                2, SeatStatus.PAID,
-                3, SeatStatus.AVAILABLE
+        Seats portStatuses = new Seats(Map.of(
+                1, new Seat(SeatStatus.HELD, "token-1"),
+                2, new Seat(SeatStatus.PAID, "token-2"),
+                3, new Seat(SeatStatus.AVAILABLE, null)
         ));
         given(seatHoldPort.getStatuses(anyList())).willReturn(portStatuses);
 
         // when
-        SeatStatuses result = seatService.getAllSeatStatuses();
+        Seats result = seatService.getSeats("token-1");
 
         // then
-        assertThat(result.of(1)).isEqualTo(SeatStatus.HELD);
-        assertThat(result.of(2)).isEqualTo(SeatStatus.PAID);
-        assertThat(result.of(3)).isEqualTo(SeatStatus.AVAILABLE);
+        assertThat(result.of(1)).isEqualTo(new Seat(SeatStatus.HELD, "token-1"));
+        assertThat(result.of(2)).isEqualTo(new Seat(SeatStatus.PAID, "token-2"));
+        assertThat(result.of(3)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
     }
 }

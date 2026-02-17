@@ -736,7 +736,8 @@ kr.jemi.zticket
 ├── seat/                                       좌석 도메인 (독립)
 │   ├── domain/
 │   │   ├── SeatStatus.java                     enum: AVAILABLE, HELD, PAID, UNKNOWN
-│   │   └── SeatStatuses.java                   좌석 상태 맵 래퍼
+│   │   ├── Seat.java                           좌석 상태 + 소유자 (도메인 객체)
+│   │   └── Seats.java                          좌석 상태 맵 래퍼
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
@@ -753,7 +754,8 @@ kr.jemi.zticket
 │       │           └── AvailableCountResponse.java    잔여 좌석 수
 │       └── out/
 │           └── redis/
-│               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
+│               ├── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
+│               └── RedisSeat.java             Redis 값 파싱 DTO
 │
 ├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
 │   ├── domain/
