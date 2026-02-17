@@ -370,10 +370,7 @@
                 var response = await fetch('/api/queues/tokens/' + encodeURIComponent(uuid));
 
                 if (!response.ok) {
-                    var errorData = await response.json().catch(function() {
-                        return { message: '상태 확인에 실패했습니다.' };
-                    });
-                    showError(errorData.message || '상태 확인에 실패했습니다.');
+                    // 4xx, 5xx 모두 일시적일 수 있으므로 폴링 유지
                     return;
                 }
 
@@ -404,7 +401,7 @@
                     showError('알 수 없는 상태입니다: ' + status);
                 }
             } catch (error) {
-                showError('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+                // 네트워크 에러는 일시적일 수 있으므로 폴링 유지
             }
         }
 
