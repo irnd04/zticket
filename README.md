@@ -215,7 +215,7 @@ sequenceDiagram
 
 ### 5. 동기화 워커 플로우
 
-DB를 **진실의 원천(Source of Truth)**으로 사용합니다. Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 워커는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
+DB를 Source of Truth로 사용합니다. Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 워커는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
 
 ```mermaid
 flowchart TD
@@ -608,11 +608,11 @@ k6 run k6/queue-stress.js &
 
 #### HTTP
 
-| 엔드포인트 | 처리량 | p95 | p99 | p99.9 | 에러율 |
-|-----------|--------|-----|-----|-------|-------|
-| `POST /api/queues/tokens` | 1,553 req/s | 20ms | 33ms | 62ms | 0% |
-| `GET /api/queues/tokens/{uuid}` | 13,953 req/s | 20ms | 33ms | 62ms | 0% |
-| **합계** | **~15,500 req/s** | | | | **0%** |
+| 엔드포인트 | 처리량              | p95 | p99 | p99.9 | 에러율 |
+|-----------|------------------|-----|-----|-------|-------|
+| `POST /api/queues/tokens` | 1.6K req/s       | 20ms | 33ms | 62ms | 0% |
+| `GET /api/queues/tokens/{uuid}` | 14K req/s        | 20ms | 33ms | 62ms | 0% |
+| **합계** | **~15.6K req/s** | | | | **0%** |
 
 #### Redis
 
@@ -623,7 +623,7 @@ k6 run k6/queue-stress.js &
 | EXISTS | 4.0ms | 5.8ms | 26ms | active 토큰 확인 |
 | ZRANGEBYSCORE | 5.7ms | 6.7ms | 7.0ms | 잠수 유저 탐색 (5,000건 배치) |
 | ZREM | 8.7ms | 11ms | 11ms | 잠수 유저 제거 (5,000건 배치) |
-| **전체** | | | | **45,305 ops/s** |
+| **전체** | | | | **45K ops/s** |
 
 #### 시스템 리소스
 
@@ -633,11 +633,10 @@ k6 run k6/queue-stress.js &
 | Process CPU | 35% | 앱 자체는 여유 |
 | System CPU | 87% | k6와 CPU 경합 |
 | JVM Heap | 312MB / 9,216MB | 여유 |
-| HikariCP | active 0, pending 0 | DB 미사용 구간 |
 
 #### 분석
 
-- **처리량**: Tomcat 200 스레드로 15,500 req/s를 처리. 스레드가 포화 상태이므로 `server.tomcat.threads.max`를 늘리면 처리량 증가 예상.
+- **처리량**: Tomcat 200 스레드로 15.6K req/s를 처리. 스레드가 포화 상태이므로 `server.tomcat.threads.max`를 늘리면 처리량 증가 예상.
 - **응답 시간**: p99 33ms, p99.9 62ms. Redis 단일 명령은 대부분 p99 6ms 이내. 잠수 유저 제거(ZREM)는 5,000건 배치 처리로 p99 11ms.
 - **에러율**: 0%. 대기열 진입과 폴링 모두 에러 없음.
 - **병목**: Tomcat 스레드 포화 + 단일 머신 CPU 경합. Redis와 DB는 여유.
@@ -646,8 +645,8 @@ k6 run k6/queue-stress.js &
 
 | 지표 | 수치 | 의미 |
 |------|------|------|
-| 진입 처리 | 1,553명/초 | 1분에 ~9.3만 명 대기열 진입 가능 |
-| 폴링 수용 | 13,953 req/s | 60초 폴링 기준 **~84만 명** 동시 대기 가능 |
+| 진입 처리 | 1.6K명/초 | 1분에 ~9.3만 명 대기열 진입 가능 |
+| 폴링 수용 | 14K req/s | 60초 폴링 기준 **~84만 명** 동시 대기 가능 |
 | 응답 시간 | p99 33ms, p99.9 62ms | 사용자 체감 없음 |
 
 단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. k6와 앱이 같은 머신에서 CPU를 경합하는 환경이므로, 분리 시 더 높은 수치가 나올 것으로 예상됩니다.
@@ -676,24 +675,24 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 
 ### 대시보드 패널
 
-| 패널 | 확인할 수 있는 것 |
-|------|-------------------|
-| HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
-| HTTP Response Time (p95) | 응답 시간 — 체감 지연 |
-| HTTP Response Time (p99) | 꼬리 지연 (tail latency) |
-| HTTP Response Time (p99.9) | 극단 지연 |
-| HTTP Error Rate | 4xx/5xx 에러 비율 |
-| Tomcat Threads | busy/current/max 스레드 — 요청 처리 용량 |
-| HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
-| HikariCP Acquire Time | 커넥션 획득 대기 시간 — 풀 고갈 감지 |
-| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
-| GC Pause Time | GC 멈춤 시간 — GC로 인한 응답 지연 감지 |
+| 패널 | 설명 |
+|------|------|
+| HTTP Request Rate | 엔드포인트별 초당 요청 수 |
+| HTTP Response Time (p95) | 상위 5% 응답 시간 |
+| HTTP Response Time (p99) | 상위 1% 응답 시간 |
+| HTTP Response Time (p99.9) | 상위 0.1% 응답 시간 |
+| HTTP Error Rate | 4xx/5xx 비율 |
+| Tomcat Threads | busy/current/max 스레드 수 |
+| HikariCP Connections | DB 커넥션풀 active/idle/pending |
+| HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
+| JVM Heap Memory | 힙 메모리 사용량 |
+| GC Pause Time | GC 멈춤 시간 |
 | CPU Usage | process/system CPU 사용률 |
-| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
-| Redis Command Rate | Redis 명령 초당 처리량 (ops/s) |
-| Redis Latency (p95) | Redis 명령 응답 시간 — 체감 지연 |
-| Redis Latency (p99) | Redis 꼬리 지연 |
-| Redis Latency (p99.9) | Redis 극단 지연 |
+| JVM Threads | 라이브/피크 스레드 수 |
+| Redis Command Rate | 명령별 초당 처리량 (ops/s) |
+| Redis Latency (p95) | 상위 5% 명령 응답 시간 |
+| Redis Latency (p99) | 상위 1% 명령 응답 시간 |
+| Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
 
 ### Actuator 엔드포인트
 
