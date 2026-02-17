@@ -202,14 +202,20 @@ sequenceDiagram
     T->>R: 4. Lua: held → paid 전환
     alt paid 전환 실패
         Note over T: 동기화 워커가 복구 예정
-        T-->>C: 티켓 반환 (status=PAID)
+        T-->>C: INTERNAL_ERROR
     end
 
     T->>DB: 5. UPDATE ticket SET status=SYNCED
+    alt SYNCED 갱신 실패
+        Note over T: 동기화 워커가 복구 예정
+        T-->>C: INTERNAL_ERROR
+    end
     T-->>C: 완료 (status=SYNCED)
 ```
 
 ### 5. 동기화 워커 플로우
+
+DB를 **진실의 원천(Source of Truth)**으로 사용합니다. Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 워커는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
 
 ```mermaid
 flowchart TD
