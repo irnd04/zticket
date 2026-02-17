@@ -1,7 +1,7 @@
 # ZTicket - 대용량 선착순 좌석 티켓 구매 시스템
 
 수백만 명 동시 접속 상황에서 선착순 좌석 티켓 구매를 처리하는 시스템입니다.
-Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
+Redis 기반 대기열과 비동기 이벤트 동기화 + 배치 복구를 통해
 **중복 판매 없는 정합성**과 **높은 처리량**을 동시에 달성합니다.
 
 ---
@@ -166,9 +166,11 @@ sequenceDiagram
 
 **peek → activate → remove 3단계 분리**: peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
-### 4. 구매 플로우 (6단계 2-Phase)
+### 4. 구매 플로우: DB PAID 저장까지
 
 > 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
+
+구매 요청은 **동기 3단계**로 처리됩니다. DB에 PAID 티켓이 저장되는 것이 구매 확정이며, 이 시점에서 클라이언트에 응답이 나갑니다.
 
 ```mermaid
 sequenceDiagram
@@ -199,43 +201,53 @@ sequenceDiagram
         T-->>C: INTERNAL_ERROR
     end
 
-    T->>R: 4. SET seat:N paid:{token} (held → paid 전환)
-    alt paid 전환 실패
-        Note over T: 동기화 워커가 복구 예정
-        T-->>C: PAID 티켓 반환
-    end
+    T-->>C: PAID 티켓 반환 (구매 확정)
 
-    T->>DB: 5. UPDATE ticket SET status=SYNCED
-    alt SYNCED 갱신 실패
-        Note over T: 동기화 워커가 복구 예정
-        T-->>C: INTERNAL_ERROR
-    end
-
-    T->>R: 6. DEL active_user:{token}
-    alt 삭제 실패
-        Note over T: TTL 자동 만료로 대응
-        T-->>C: INTERNAL_ERROR
-    end
-    T-->>C: 완료 (status=SYNCED)
+    Note over T: TicketPaidEvent 발행 → 비동기 후처리로 위임
 ```
 
-### 5. 동기화 워커 플로우
+**DB PAID = Source of Truth**: 클라이언트는 DB에 PAID가 저장되면 구매 성공입니다. 이후 Redis 동기화는 비동기로 처리되며, 실패해도 구매 결과에 영향을 주지 않습니다.
 
-DB를 Source of Truth로 사용합니다. Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 워커는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
+### 5. 비동기 Redis 동기화: @Async 이벤트
+
+DB에 PAID 저장 후, `TicketPaidEvent`가 발행됩니다. `TicketPaidEventListener`가 `@Async`로 후처리를 수행합니다. 실패해도 구매 응답에 영향이 없습니다.
+
+```mermaid
+sequenceDiagram
+    participant T as TicketService
+    participant E as EventPublisher
+    participant L as TicketPaidEventListener<br/>(@Async)
+    participant R as Redis
+    participant DB as MySQL
+
+    T->>E: publishEvent(TicketPaidEvent)
+    Note over T: 즉시 반환 (비동기)
+
+    E->>L: handle(event)
+    L->>DB: findByUuid(ticketUuid)
+    DB-->>L: Ticket (PAID)
+
+    L->>R: SET seat:N "paid:{token}" (held → paid 전환)
+    L->>DB: UPDATE ticket SET status=SYNCED
+    L->>R: DEL active_user:{token}
+```
+
+### 6. 동기화 배치 복구: PAID 티켓 재동기화
+
+5단계 비동기 처리가 실패하면 DB에 PAID 상태로 남습니다. 동기화 배치(`SyncScheduler`, 매 1분)가 이를 감지하여 동일한 `TicketPaidEvent`를 발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
 ```mermaid
 flowchart TD
     A[SyncScheduler 매 1분] --> B[DB에서 status=PAID 티켓 조회]
     B --> C{PAID 티켓 있음?}
     C -- 없음 --> END[종료]
-    C -- 있음 --> D[각 PAID 티켓에 대해]
-    D --> E["Redis SET seat:{n} paid:{token}<br/>(기존 TTL 자동 제거, 영구 키)"]
-    E --> F[DB UPDATE status=SYNCED]
-    F --> D
+    C -- 있음 --> D["각 PAID 티켓에 대해<br/>TicketPaidEvent 발행"]
 
     style A fill:#f9f,stroke:#333
     style END fill:#9f9,stroke:#333
 ```
+
+**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 배치는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
 
 ---
 
@@ -247,47 +259,37 @@ flowchart TD
 
 #### Case 1: Redis held 성공 → DB INSERT 실패
 
-```
-상태: Redis에 held:{token} (TTL 째깍째깍) + DB 레코드 없음
-위험: 좌석이 5분간 불필요하게 점유됨
-해결: catch 블록에서 즉시 DEL seat:{n} 롤백
-안전망: 롤백마저 실패해도 TTL 5분이 자동 해제 → 일시적 불편일 뿐 중복 판매 없음
-```
+- **사용자 응답**: INTERNAL_ERROR (구매 실패)
+- **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB 레코드 없음
+- 구매가 확정되지 않은 상태이므로 catch 블록에서 즉시 `DEL seat:{n}`으로 롤백합니다.
+- 롤백마저 실패해도 held 키의 TTL(5분)이 자동 해제합니다.
+- **중복 판매 불가능**: DB에 레코드 자체가 없으므로 판매된 적이 없습니다.
 
-#### Case 2: Redis held + DB PAID 성공 → Redis paid 전환 중 서버 사망
+#### Case 2: DB PAID 성공 → 비동기 Redis paid 전환 실패 (또는 서버 사망)
 
-```
-상태: DB에 PAID 레코드 있음 + Redis에 held:{token} (TTL 째깍째깍)
-위험: TTL 만료 → 다른 사용자가 같은 좌석 hold 가능
-해결: 동기화 워커가 1분마다 PAID 조회 → paySeat으로 Redis에 paid:{token} 복원
-안전망: TTL 만료 전에 동기화 워커가 처리. 설령 TTL 만료 후 다른 사용자가 hold해도
-       DB tickets 테이블의 seatNumber UNIQUE 제약 때문에 해당 사용자의 DB 저장이 실패함.
-       따라서 paySeat으로 덮어써도 중복 판매 없음.
-```
+- **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
+- **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
+- Redis에 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
+- 동기화 배치가 1분마다 PAID 티켓을 조회하여 `SET seat:{n} paid:{token}`으로 Redis를 복원합니다.
+- **중복 판매 불가능**: 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
 
-#### Case 3: Redis paid + DB UPDATE SYNCED 중 서버 사망
+#### Case 3: Redis paid 성공 → DB SYNCED 갱신 실패
 
-```
-상태: Redis에 paid:{token} (영구) + DB에 PAID 레코드
-위험: DB만 PAID이지만 좌석은 이미 확보됨 → 중복 판매 없음
-해결: 동기화 워커가 paySeat 재실행 → 이미 paid이므로 동일한 결과 → DB SYNCED
-```
+- **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
+- **상태**: Redis `paid:{token}` (영구) + DB `PAID`
+- 동기화 배치가 paySeat을 재실행하지만, 이미 paid이므로 동일한 값을 덮어쓸 뿐입니다(멱등). 이후 DB를 SYNCED로 갱신합니다.
+- **중복 판매 불가능**: Redis가 이미 paid로 영구 점유 중이라 다른 사용자의 hold가 불가능합니다.
 
-#### 왜 이 전략이 안전한가?
+#### Case 4: DB SYNCED 성공 → active 유저 제거 실패
 
-| 장애 시점 | Redis 상태 | DB 상태 | 중복 판매? | 자동 복구? |
-|-----------|-----------|---------|-----------|-----------|
-| 2단계 이후 | held (TTL) | 없음 | 불가능 (즉시 롤백 또는 TTL 만료) | TTL 자동 해제 |
-| 3단계 이후 | held (TTL) | PAID | 불가능 (UNIQUE 제약) | 동기화 워커 |
-| 4단계 이후 | paid | PAID | 불가능 (영구 점유) | 동기화 워커가 DB만 갱신 |
-| 5단계 이후 | paid | SYNCED | 불가능 | active_user TTL 자동 만료 |
-| 6단계 이후 | paid | SYNCED | 불가능 | 이미 완료 |
+- **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
+- **상태**: Redis `paid:{token}` (영구) + DB `SYNCED` + `active_user:{token}` 잔존
+- 구매와 동기화는 완료된 상태이며, active 슬롯만 5분간 불필요하게 점유됩니다.
+- `active_user` 키에 TTL(5분)이 걸려 있어 별도 처리 없이 자동 만료됩니다.
 
-**핵심 불변식**:
-- `동기화 워커 주기(1분) < hold TTL(5분)` → TTL 만료 전 동기화 완료
-- `seatNumber UNIQUE 제약` → 동기화 워커가 실패하더라도, 같은 좌석 번호로 두 번째 INSERT가 시도되면 DB가 UNIQUE 위반으로 거부합니다. 즉, 애플리케이션 로직과 무관하게 DB 레벨에서 중복 판매를 원천 차단합니다.
+#### 핵심 불변식
 
-> **시나리오**: 사용자 A가 좌석 7을 구매 완료(DB PAID) → 서버 장애로 Redis paid 전환 실패 → held TTL 만료 → 사용자 B가 좌석 7을 hold 성공 → B의 DB INSERT 시 `seat_number UNIQUE` 위반 → B의 구매 실패 → 동기화 워커가 A의 paid를 Redis에 복원
+- `동기화 배치 주기(1분) < hold TTL(5분)` → TTL 만료 전에 동기화가 완료됩니다.
 
 ---
 
@@ -445,7 +447,7 @@ public Ticket save(Ticket ticket) {
 
 **채택 이유**:
 - **도메인 순수성**: Port 인터페이스가 경계를, Adapter의 객체 변환이 분리를 만듭니다. `Ticket.java`에 `@Entity` 같은 JPA 어노테이션이 없습니다. Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
-- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPersistencePort`만 Mock하면 Redis/MySQL 없이도 구매 로직 5단계를 완벽히 테스트할 수 있습니다.
+- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPersistencePort`만 Mock하면 Redis/MySQL 없이도 구매 로직을 완벽히 테스트할 수 있습니다.
 - **의존성 방향 제어**: DIP에 의해 모든 의존성이 domain을 향합니다 (`adapter → application → domain`). domain은 어디에도 의존하지 않습니다.
 - **경계의 명시성**: `port/in`, `port/out`, `adapter/in`, `adapter/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
 
@@ -756,7 +758,8 @@ kr.jemi.zticket
 ├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
 │   ├── domain/
 │   │   ├── Ticket.java                         도메인 엔티티
-│   │   └── TicketStatus.java                   enum: PAID, SYNCED
+│   │   ├── TicketStatus.java                   enum: PAID, SYNCED
+│   │   └── TicketPaidEvent.java                record(ticketUuid) - 비동기 후처리 이벤트
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
@@ -764,8 +767,9 @@ kr.jemi.zticket
 │   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
 │   │   │   └── out/
 │   │   │       └── TicketPersistencePort.java  save/findByUuid/findByStatus
-│   │   ├── TicketService.java                  6단계 구매 오케스트레이션
-│   │   └── TicketSyncService.java              PAID → Redis 동기화
+│   │   ├── TicketService.java                  동기 3단계 구매 + 이벤트 발행
+│   │   ├── TicketSyncService.java              PAID 티켓 이벤트 재발행 (배치 복구)
+│   │   └── TicketPaidEventListener.java        @Async 후처리 (paid 전환, SYNCED, deactivate)
 │   └── adapter/
 │       ├── in/
 │       │   ├── web/
@@ -792,7 +796,7 @@ kr.jemi.zticket
 │       └── ErrorResponse.java                     에러 응답 DTO
 │
 └── config/
-    (스케줄러 설정은 application.yml spring.task.scheduling으로 처리)
+    └── AsyncConfig.java                       @Async 설정 + AsyncUncaughtExceptionHandler
 ```
 
 ### 도메인 간 의존 관계
