@@ -1,7 +1,7 @@
 package kr.jemi.zticket.ticket.application;
 
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
@@ -25,7 +25,7 @@ import static org.mockito.BDDMockito.*;
 class TicketPaidEventListenerTest {
 
     @Mock
-    private SeatHoldPort seatHoldPort;
+    private SeatPort seatPort;
 
     @Mock
     private TicketPort ticketPort;
@@ -48,8 +48,8 @@ class TicketPaidEventListenerTest {
         listener.handle(new TicketPaidEvent("uuid-1"));
 
         // then
-        InOrder inOrder = inOrder(seatHoldPort, ticketPort, activeUserPort);
-        inOrder.verify(seatHoldPort).paySeat(7, "token-1");
+        InOrder inOrder = inOrder(seatPort, ticketPort, activeUserPort);
+        inOrder.verify(seatPort).paySeat(7, "token-1");
         inOrder.verify(ticketPort).save(any(Ticket.class));
         inOrder.verify(activeUserPort).deactivate("token-1");
     }
@@ -65,7 +65,7 @@ class TicketPaidEventListenerTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("티켓 없음");
 
-        then(seatHoldPort).shouldHaveNoInteractions();
+        then(seatPort).shouldHaveNoInteractions();
         then(activeUserPort).shouldHaveNoInteractions();
     }
 }

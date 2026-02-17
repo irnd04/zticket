@@ -1,7 +1,7 @@
 package kr.jemi.zticket.integration;
 
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
 import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
@@ -28,7 +28,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
     ActiveUserPort activeUserPort;
 
     @Autowired
-    SeatHoldPort seatHoldPort;
+    SeatPort seatPort;
 
     @Test
     @DisplayName("Case 2 복구: Redis held + DB PAID -> syncPaidTickets -> Redis paid + DB SYNCED")
@@ -37,7 +37,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         int seatNumber = 1;
 
         activeUserPort.activate(token, 300);
-        seatHoldPort.holdSeat(seatNumber, token, 300);
+        seatPort.holdSeat(seatNumber, token, 300);
         Ticket ticket = Ticket.create(token, seatNumber);
         ticketPort.save(ticket);
 
@@ -67,7 +67,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         int seatNumber = 1;
 
         activeUserPort.activate(token, 300);
-        seatHoldPort.paySeat(seatNumber, token);
+        seatPort.paySeat(seatNumber, token);
         Ticket ticket = Ticket.create(token, seatNumber);
         ticketPort.save(ticket);
 

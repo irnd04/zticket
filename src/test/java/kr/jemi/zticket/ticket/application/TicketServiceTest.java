@@ -1,7 +1,7 @@
 package kr.jemi.zticket.ticket.application;
 
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
@@ -27,7 +27,7 @@ import static org.mockito.BDDMockito.*;
 class TicketServiceTest {
 
     @Mock
-    private SeatHoldPort seatHoldPort;
+    private SeatPort seatPort;
 
     @Mock
     private TicketPort ticketPort;
@@ -45,7 +45,7 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(
-                seatHoldPort, ticketPort, activeUserPort, eventPublisher, HOLD_TTL_SECONDS);
+                seatPort, ticketPort, activeUserPort, eventPublisher, HOLD_TTL_SECONDS);
     }
 
     @Nested
@@ -59,7 +59,7 @@ class TicketServiceTest {
             String token = "active-token";
             int seatNumber = 7;
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
 
             // when
@@ -78,16 +78,16 @@ class TicketServiceTest {
             String token = "active-token";
             int seatNumber = 7;
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
 
             // when
             ticketService.purchase(token, seatNumber);
 
             // then - 순서 검증: isActive → holdSeat → save(PAID) → 이벤트 발행
-            InOrder inOrder = inOrder(activeUserPort, seatHoldPort, ticketPort, eventPublisher);
+            InOrder inOrder = inOrder(activeUserPort, seatPort, ticketPort, eventPublisher);
             inOrder.verify(activeUserPort).isActive(token);
-            inOrder.verify(seatHoldPort).holdSeat(seatNumber, token, HOLD_TTL_SECONDS);
+            inOrder.verify(seatPort).holdSeat(seatNumber, token, HOLD_TTL_SECONDS);
             inOrder.verify(ticketPort).save(any(Ticket.class));
             inOrder.verify(eventPublisher).publishEvent(any(TicketPaidEvent.class));
         }
@@ -99,7 +99,7 @@ class TicketServiceTest {
             String token = "active-token";
             int seatNumber = 7;
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
 
             // when
@@ -128,7 +128,7 @@ class TicketServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.NOT_ACTIVE_USER);
 
-            then(seatHoldPort).shouldHaveNoInteractions();
+            then(seatPort).shouldHaveNoInteractions();
             then(ticketPort).shouldHaveNoInteractions();
         }
     }
@@ -143,7 +143,7 @@ class TicketServiceTest {
             // given
             String token = "active-token";
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(false);
+            given(seatPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(false);
 
             // when & then
             assertThatThrownBy(() -> ticketService.purchase(token, 7))
@@ -160,14 +160,14 @@ class TicketServiceTest {
             // given
             String token = "active-token";
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any())).willAnswer(inv -> inv.getArgument(0));
 
             // when
             ticketService.purchase(token, 7);
 
             // then
-            then(seatHoldPort).should().holdSeat(7, token, 300L);
+            then(seatPort).should().holdSeat(7, token, 300L);
         }
     }
 
@@ -182,7 +182,7 @@ class TicketServiceTest {
             String token = "active-token";
             int seatNumber = 7;
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any(Ticket.class)))
                     .willThrow(new RuntimeException("DB connection failed"));
 
@@ -192,7 +192,7 @@ class TicketServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.INTERNAL_ERROR);
 
-            then(seatHoldPort).should().releaseSeat(seatNumber);
+            then(seatPort).should().releaseSeat(seatNumber);
         }
 
         @Test
@@ -201,7 +201,7 @@ class TicketServiceTest {
             // given
             String token = "active-token";
             given(activeUserPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
+            given(seatPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
             given(ticketPort.save(any(Ticket.class)))
                     .willThrow(new RuntimeException("DB error"));
 

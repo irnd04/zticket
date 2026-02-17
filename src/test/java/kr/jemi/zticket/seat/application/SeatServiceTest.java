@@ -1,6 +1,6 @@
 package kr.jemi.zticket.seat.application;
 
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
 import kr.jemi.zticket.seat.domain.Seats;
@@ -22,25 +22,25 @@ import static org.mockito.BDDMockito.given;
 class SeatServiceTest {
 
     @Mock
-    private SeatHoldPort seatHoldPort;
+    private SeatPort seatPort;
 
     private SeatService seatService;
 
     @BeforeEach
     void setUp() {
-        seatService = new SeatService(seatHoldPort, 3);
+        seatService = new SeatService(seatPort, 3);
     }
 
     @Test
-    @DisplayName("SeatHoldPort로부터 받은 상태를 그대로 반환한다")
-    void shouldDelegateToSeatHoldPort() {
+    @DisplayName("SeatPort로부터 받은 상태를 그대로 반환한다")
+    void shouldDelegateToSeatPort() {
         // given
         Seats portStatuses = new Seats(Map.of(
                 1, new Seat(SeatStatus.HELD, "token-1"),
                 2, new Seat(SeatStatus.PAID, "token-2"),
                 3, new Seat(SeatStatus.AVAILABLE, null)
         ));
-        given(seatHoldPort.getStatuses(anyList())).willReturn(portStatuses);
+        given(seatPort.getStatuses(anyList())).willReturn(portStatuses);
 
         // when
         Seats result = seatService.getSeats("token-1");

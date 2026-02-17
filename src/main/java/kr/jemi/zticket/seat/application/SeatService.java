@@ -1,7 +1,7 @@
 package kr.jemi.zticket.seat.application;
 
 import kr.jemi.zticket.seat.application.port.in.GetSeatsUseCase;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.seat.domain.Seats;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -13,12 +13,12 @@ import java.util.stream.IntStream;
 @Service
 public class SeatService implements GetSeatsUseCase {
 
-    private final SeatHoldPort seatHoldPort;
+    private final SeatPort seatPort;
     private final int totalSeats;
 
-    public SeatService(SeatHoldPort seatHoldPort,
+    public SeatService(SeatPort seatPort,
                        @Value("${zticket.seat.total-count}") int totalSeats) {
-        this.seatHoldPort = seatHoldPort;
+        this.seatPort = seatPort;
         this.totalSeats = totalSeats;
     }
 
@@ -27,7 +27,7 @@ public class SeatService implements GetSeatsUseCase {
         List<Integer> allSeats = IntStream.rangeClosed(1, totalSeats)
                 .boxed()
                 .toList();
-        return seatHoldPort.getStatuses(allSeats);
+        return seatPort.getStatuses(allSeats);
     }
 
     @Cacheable("availableCount")

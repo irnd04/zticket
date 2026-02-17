@@ -1,7 +1,7 @@
 package kr.jemi.zticket.integration;
 
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +18,7 @@ import static org.awaitility.Awaitility.await;
 class TtlExpiryIntegrationTest extends IntegrationTestBase {
 
     @Autowired
-    SeatHoldPort seatHoldPort;
+    SeatPort seatPort;
 
     @Autowired
     ActiveUserPort activeUserPort;
@@ -30,7 +30,7 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
         int seatNumber = 1;
         String seatKey = "seat:" + seatNumber;
 
-        seatHoldPort.holdSeat(seatNumber, token, 3);
+        seatPort.holdSeat(seatNumber, token, 3);
         assertThat(redisTemplate.hasKey(seatKey)).as("hold 직후 키 존재").isTrue();
 
         await().atMost(5, TimeUnit.SECONDS)
@@ -38,7 +38,7 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
                         assertThat(redisTemplate.hasKey(seatKey)).as("TTL 만료 후 키 소멸").isFalse()
                 );
 
-        assertThat(seatHoldPort.getStatuses(List.of(seatNumber)).of(seatNumber))
+        assertThat(seatPort.getStatuses(List.of(seatNumber)).of(seatNumber))
                 .as("좌석 available 복구")
                 .isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
     }
@@ -65,9 +65,9 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
         int seatNumber = 1;
         String seatKey = "seat:" + seatNumber;
 
-        assertThat(seatHoldPort.holdSeat(seatNumber, token1, 3))
+        assertThat(seatPort.holdSeat(seatNumber, token1, 3))
                 .as("첫 번째 hold 성공").isTrue();
-        assertThat(seatHoldPort.holdSeat(seatNumber, token2, 300))
+        assertThat(seatPort.holdSeat(seatNumber, token2, 300))
                 .as("중복 hold 실패").isFalse();
 
         await().atMost(5, TimeUnit.SECONDS)
@@ -75,7 +75,7 @@ class TtlExpiryIntegrationTest extends IntegrationTestBase {
                         assertThat(redisTemplate.hasKey(seatKey)).as("TTL 만료").isFalse()
                 );
 
-        assertThat(seatHoldPort.holdSeat(seatNumber, token2, 300))
+        assertThat(seatPort.holdSeat(seatNumber, token2, 300))
                 .as("만료 후 재선점 성공").isTrue();
 
         assertThat(redisTemplate.opsForValue().get(seatKey))

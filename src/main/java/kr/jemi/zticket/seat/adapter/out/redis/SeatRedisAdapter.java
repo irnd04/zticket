@@ -8,12 +8,12 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.Seats;
 
 @Component
-public class SeatRedisAdapter implements SeatHoldPort {
+public class SeatRedisAdapter implements SeatPort {
 
     private static final String KEY_PREFIX = "seat:";
 

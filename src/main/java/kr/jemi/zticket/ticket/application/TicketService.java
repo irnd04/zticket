@@ -2,7 +2,7 @@ package kr.jemi.zticket.ticket.application;
 
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
+import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
@@ -20,18 +20,18 @@ public class TicketService implements PurchaseTicketUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(TicketService.class);
 
-    private final SeatHoldPort seatHoldPort;
+    private final SeatPort seatPort;
     private final TicketPort ticketPort;
     private final ActiveUserPort activeUserPort;
     private final ApplicationEventPublisher eventPublisher;
     private final long holdTtlSeconds;
 
-    public TicketService(SeatHoldPort seatHoldPort,
+    public TicketService(SeatPort seatPort,
                          TicketPort ticketPort,
                          ActiveUserPort activeUserPort,
                          ApplicationEventPublisher eventPublisher,
                          @Value("${zticket.seat.hold-ttl-seconds}") long holdTtlSeconds) {
-        this.seatHoldPort = seatHoldPort;
+        this.seatPort = seatPort;
         this.ticketPort = ticketPort;
         this.activeUserPort = activeUserPort;
         this.eventPublisher = eventPublisher;
@@ -46,7 +46,7 @@ public class TicketService implements PurchaseTicketUseCase {
         }
 
         // 2. Redis 좌석 선점 (SET NX EX)
-        boolean held = seatHoldPort.holdSeat(seatNumber, queueToken, holdTtlSeconds);
+        boolean held = seatPort.holdSeat(seatNumber, queueToken, holdTtlSeconds);
         if (!held) {
             throw new BusinessException(ErrorCode.SEAT_ALREADY_HELD);
         }
@@ -58,7 +58,7 @@ public class TicketService implements PurchaseTicketUseCase {
         } catch (Exception e) {
             // 롤백: Redis 좌석 해제
             log.error("DB 저장 실패, 좌석 해제: {}", seatNumber, e);
-            seatHoldPort.releaseSeat(seatNumber);
+            seatPort.releaseSeat(seatNumber);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR);
         }
 
