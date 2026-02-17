@@ -312,34 +312,7 @@ return 0
 
 ---
 
-### 3. DB 중복 판매 방어: seatNumber UNIQUE 제약
-
-#### 선택: `tickets.seat_number` 컬럼에 UNIQUE 제약
-
-```java
-// TicketJpaEntity.java
-@Column(nullable = false, unique = true)
-private int seatNumber;
-```
-
-**UNIQUE가 없으면 어떤 일이 벌어지는가?**
-
-```
-1. 사용자 A: 좌석 7 hold 성공     → Redis: held:A (TTL 5분)
-2. 사용자 A: DB INSERT 성공        → DB: seat_number=7, PAID (= 결제 완료)
-3. 서버 장애 → Redis paid 전환 실패
-4. held:A TTL 만료                 → Redis: (키 없음)
-5. 사용자 B: 좌석 7 hold 성공      → Redis: held:B (TTL 5분)  ← 키가 없으니 성공
-6. 사용자 B: DB INSERT             → UNIQUE 없으면 성공 → 좌석 7이 A, B 둘 다에게 판매됨
-```
-
-**UNIQUE가 있으면?**
-
-6단계에서 `seat_number UNIQUE` 위반으로 B의 INSERT가 실패합니다. Redis TTL 만료 ~ 동기화 워커 실행 사이의 시간 갭에서 다른 사용자가 같은 좌석을 hold할 수 있지만, DB가 최종 방어선으로 중복 판매를 차단합니다. 이후 동기화 워커가 A의 `paid:{token}`을 Redis에 복원합니다.
-
----
-
-### 4. 대기열 입장: 잠수 제거 → peek → activate → remove
+### 3. 대기열 입장: 잠수 제거 → peek → activate → remove
 
 #### 잠수 유저 제거 (Sorted Set 기반)
 
