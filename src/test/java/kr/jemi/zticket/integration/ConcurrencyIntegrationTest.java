@@ -76,16 +76,16 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
         assertThat(successCount).as("성공 수").hasValue(1);
         assertThat(failCount).as("실패 수").hasValue(threadCount - 1);
 
-        // 성공한 토큰 추출
-        String winnerToken = redisTemplate.opsForValue().get("seat:" + seatNumber);
-        assertThat(winnerToken).startsWith("held:");
-        String winner = winnerToken.substring("held:".length());
-
         // 비동기 후처리 완료 대기
         await().atMost(5, SECONDS).untilAsserted(() -> {
-            assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
+            String winnerToken = redisTemplate.opsForValue().get("seat:" + seatNumber);
+
+            assertThat(winnerToken)
                     .as("Redis seat 키")
                     .startsWith("paid:");
+
+            // 성공한 토큰 추출
+            String winner = winnerToken.substring("paid:".length());
 
             assertThat(ticketPort.findByStatus(TicketStatus.SYNCED))
                     .as("DB SYNCED 티켓")
