@@ -112,7 +112,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[AdmissionScheduler 매 20초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 3분 이상 지난 유저 조회"]
+    A[AdmissionScheduler 매 20초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 2분 이상 지난 유저 조회"]
     B --> C{잠수 유저 있음?}
     C -- 없음 --> END[입장 처리로 진행]
     C -- 있음 --> D[ZREM waiting_queue 에서 제거]
@@ -129,7 +129,7 @@ flowchart LR
         N1[20초마다 폴링] --> N2[heartbeat score 갱신] --> N3[ZRANGEBYSCORE에 안 걸림 ✅]
     end
     subgraph 잠수 유저
-        G1[브라우저 닫음] --> G2[폴링 중단] --> G3[score가 3분+ 과거] --> G4[ZRANGEBYSCORE에 걸림 → 제거 ❌]
+        G1[브라우저 닫음] --> G2[폴링 중단] --> G3[score가 2분+ 과거] --> G4[ZRANGEBYSCORE에 걸림 → 제거 ❌]
     end
 ```
 
@@ -335,12 +335,12 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 연산 | 명령 | 복잡도 | 빈도 |
 |------|------|--------|------|
 | 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
-| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 2초마다 |
+| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 20초마다 |
 | 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
 | 잠수 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
-| rank 조회 | ZRANK | O(log N) | 유저당 2초마다 |
+| rank 조회 | ZRANK | O(log N) | 유저당 20초마다 |
 
-100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 2초마다 1회이므로, 대기자 10만 명이면 ~5만 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 20초마다 1회이므로, 대기자 10만 명이면 ~5,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
 
 #### 입장 후 잠수 유저
 
@@ -463,7 +463,7 @@ public Ticket save(Ticket ticket) {
 #### 선택: Redis Sorted Set (`ZADD`, `ZRANK`, `ZRANGE + ZREM`)
 
 **채택 이유**:
-- **실시간 순번 조회**: `ZRANK`는 O(log N)으로 즉시 현재 순번을 반환합니다. 클라이언트가 2초마다 폴링할 때 "현재 347번째"를 바로 응답할 수 있습니다. Kafka에서는 consumer offset으로 순번을 계산하는 것이 불가능에 가깝습니다.
+- **실시간 순번 조회**: `ZRANK`는 O(log N)으로 즉시 현재 순번을 반환합니다. 클라이언트가 20초마다 폴링할 때 "현재 347번째"를 바로 응답할 수 있습니다. Kafka에서는 consumer offset으로 순번을 계산하는 것이 불가능에 가깝습니다.
 - **배치 입장의 단순성**: `ZRANGE(0, 59)` + `ZREM`으로 상위 60명을 원자적으로 추출합니다.
 - **인프라 단순성**: 이미 좌석 선점용으로 Redis를 사용하므로, 별도 인프라를 추가하지 않습니다.
 
@@ -815,7 +815,7 @@ queue  → (독립)
 ```
 src/main/resources/templates/
 ├── index.html              메인 (대기열 진입 버튼)
-├── queue.html              대기열 (순번 표시, 2초 폴링, ACTIVE 시 자동 이동)
+├── queue.html              대기열 (순번 표시, 20초 폴링, ACTIVE 시 자동 이동)
 ├── purchase.html           좌석 선택 + 구매 (50석 전용 5x10 그리드, A1~E10)
 └── confirmation.html       구매 결과 (성공/실패)
 ```
@@ -855,7 +855,7 @@ zticket:
     interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 200   # 동시 active 유저 상한
-    queue-ttl-seconds: 300  # 대기열 잠수 제거 기준 (5분간 폴링 없으면 제거)
+    queue-ttl-seconds: 120  # 대기열 잠수 제거 기준 (2분간 폴링 없으면 제거)
   seat:
     total-count: 50         # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)

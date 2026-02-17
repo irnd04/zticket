@@ -44,7 +44,7 @@ export default function () {
     const waitStart = Date.now();
     let active = false;
 
-    for (let i = 0; i < 45; i++) {  // 최대 15분 (45 * 20초)
+    for (let i = 0; i < 15; i++) {  // 최대 5분 (15 * 20초)
         sleep(20)
         const statusRes = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`);
         const status = statusRes.json('status');
