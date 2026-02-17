@@ -583,8 +583,8 @@ k6 run k6/full-flow.js
 
 | 스크립트 | VU | 동작 | 종료 조건 |
 |---------|-----|------|----------|
-| `enter-stress.js` | 200 | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
-| `queue-stress.js` | 5,000 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
+| `enter-stress.js` | 60 | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
+| `queue-stress.js` | 5,400 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 ```bash
 # 터미널 2개에서 동시에 실행
@@ -597,42 +597,37 @@ k6 run k6/queue-stress.js &
 > 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 앱 + k6 + Docker(Redis, MySQL, Prometheus, Grafana)를 동시에 실행한 환경.
 > k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
 
-**테스트 조건**: enter-stress 70 VU + queue-stress 6,300 VU (합계 6,370 VU), 10분
+**테스트 조건**: enter-stress 60 VU + queue-stress 5,400 VU (합계 5,460 VU), 10분
 
 #### HTTP
 
-| 엔드포인트 | 요청 수 | 처리량 | p50 | p95 | p99 | p99.9 |
-|-----------|--------|--------|-----|-----|-----|-------|
-| `POST /api/queues/tokens` | 296K | ~390 req/s | 10ms | 22ms | 59ms | 443ms |
-| `GET /api/queues/tokens/{uuid}` (200) | 21.5M | ~13K req/s | 12ms | 19ms | 39ms | 125ms |
-| `GET /api/queues/tokens/{uuid}` (404) | 2.4M | ~2K req/s | 10ms | — | — | — |
-| **합계** | **24.2M** | **~15K req/s** | | | | |
+| 엔드포인트 | 요청 수 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
+|-----------|--------|--------|-----|-----|-------|------|
+| `POST /api/queues/tokens` | 102K | ~171 req/s | 15ms | 33ms | 62ms | 1분에 ~1만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` (200) | 9.6M | ~15.3K req/s | 15ms | 36ms | 79ms | 20초 폴링 기준 **~30만 명** 동시 대기 |
+| **합계** | **9.7M** | **~15.5K req/s** | | | | |
 
 #### 시스템 리소스
 
 | 지표 | 값 | 비고 |
 |------|-----|------|
-| Tomcat Threads | 226 | 활성 스레드 |
-| Process CPU | 34% | 앱 자체는 여유 |
-| System CPU | 90% | k6와 CPU 경합 |
-| JVM Heap | 722MB | GC 후 안정 |
+| Tomcat Threads | 200 | max 풀 사용 |
+| Process CPU | 36% | 앱 자체는 여유 |
+| System CPU | 83% | k6와 CPU 경합 (병목) |
+| JVM Heap | 589MB (avg) / 879MB (peak) | GC 후 안정 |
 
-#### 분석
+#### Redis
 
-- **처리량**: ~15K req/s 달성. VU를 6,370으로 늘렸지만 단일 머신 CPU 한계로 처리량은 유사.
-- **응답 시간**: 폴링 p99 39ms, p99.9 125ms. 진입 API는 p99 59ms로 다소 높지만 p95 22ms로 대부분 빠르게 처리.
-- **404 응답**: enter-stress에서 생성된 토큰이 폴링되지 않아 heartbeat 갱신 없이 2분(queue-ttl) 후 제거된 케이스. 정상 동작.
-- **병목**: 단일 머신 CPU 경합(System CPU 90%). Redis와 DB는 여유.
+| 명령 | p95 | p99 | p99.9 | 용도 |
+|------|-----|-----|-------|------|
+| ZADD | 3.6ms | 5.1ms | 24ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | 3.6ms | 5.1ms | 24ms | 순번 조회 |
+| EXISTS | 3.8ms | 5.3ms | 27ms | active 토큰 확인 |
+| ZRANGEBYSCORE | 2.8ms | 3.0ms | 3.1ms | 잠수 유저 탐색 |
+| ZREM | 5.3ms | 5.5ms | 5.6ms | 잠수 유저 제거 |
+| **전체** | | | | **~47K ops/s** |
 
-#### 실 서비스 환산
-
-| 지표 | 수치 | 의미 |
-|------|------|------|
-| 진입 처리 | ~390명/초 | 1분에 ~2.3만 명 대기열 진입 가능 |
-| 폴링 수용 | ~15K req/s | 20초 폴링 기준 **~30만 명** 동시 대기 가능 |
-| 응답 시간 | p99 39ms, p99.9 125ms | 사용자 체감 없음 |
-
-단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. k6와 앱이 같은 머신에서 CPU를 경합하는 환경이므로, 분리 시 더 높은 수치가 나올 것으로 예상됩니다.
+단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. 병목은 System CPU 83% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
 
 ---
 
