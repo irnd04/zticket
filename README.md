@@ -12,8 +12,8 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 2. [실행 방법](#실행-방법)
 3. [아키텍처 Overview](#아키텍처-overview)
 4. [핵심 플로우](#핵심-플로우)
-5. [Redis-DB 동기화 전략](#redis-db-동기화-전략)
-6. [설계 결정과 트레이드오프](#설계-결정과-트레이드오프)
+5. [데이터 정합성](#데이터-정합성)
+6. [설계 결정](#설계-결정)
 7. [패키지 구조](#패키지-구조)
 8. [API 명세](#api-명세)
 9. [Redis 키 설계](#redis-키-설계)
@@ -227,17 +227,13 @@ flowchart TD
 
 ---
 
-## Redis-DB 동기화 전략
-
-### 좌석 상태 흐름
-
-```
-[키 없음 = available] ──▶ held:{token} (TTL 300초) ──▶ paid:{token} (TTL 없음, 영구)
-```
+## 데이터 정합성
 
 이 시스템의 가장 어려운 문제는 **Redis와 DB 간의 상태 불일치**입니다. 두 저장소에 걸친 연산은 분산 트랜잭션이 불가능하므로, 장애 시나리오별 대응 전략을 설계했습니다.
 
-### Case 1: Redis held 성공 → DB INSERT 실패
+### 1. Redis-DB 장애 시나리오와 복구
+
+#### Case 1: Redis held 성공 → DB INSERT 실패
 
 ```
 상태: Redis에 held:{token} (TTL 째깍째깍) + DB 레코드 없음
@@ -246,7 +242,7 @@ flowchart TD
 안전망: 롤백마저 실패해도 TTL 5분이 자동 해제 → 일시적 불편일 뿐 중복 판매 없음
 ```
 
-### Case 2: Redis held + DB PAID 성공 → Redis paid 전환 중 서버 사망
+#### Case 2: Redis held + DB PAID 성공 → Redis paid 전환 중 서버 사망
 
 ```
 상태: DB에 PAID 레코드 있음 + Redis에 held:{token} (TTL 째깍째깍)
@@ -257,7 +253,7 @@ flowchart TD
        따라서 setPaidSeat으로 덮어써도 중복 판매 없음.
 ```
 
-### Case 3: Redis paid + DB UPDATE SYNCED 중 서버 사망
+#### Case 3: Redis paid + DB UPDATE SYNCED 중 서버 사망
 
 ```
 상태: Redis에 paid:{token} (영구) + DB에 PAID 레코드
@@ -265,7 +261,7 @@ flowchart TD
 해결: 동기화 워커가 setPaidSeat 재실행 → 이미 paid이므로 동일한 결과 → DB SYNCED
 ```
 
-### 왜 이 전략이 안전한가?
+#### 왜 이 전략이 안전한가?
 
 | 장애 시점 | Redis 상태 | DB 상태 | 중복 판매? | 자동 복구? |
 |-----------|-----------|---------|-----------|-----------|
@@ -282,7 +278,136 @@ flowchart TD
 
 ---
 
-## 설계 결정과 트레이드오프
+### 2. 좌석 Redis 연산: 선점(hold)과 결제 확정(pay)
+
+좌석 상태를 변경하는 Redis 연산은 두 가지인데, 각각 요구사항이 달라 다른 방식을 사용합니다.
+
+#### 선점 (hold): `SET NX EX`
+
+"키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
+
+```java
+// SeatHoldRedisAdapter.java
+Boolean success = redisTemplate.opsForValue()
+        .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
+```
+
+#### 결제 확정 (pay): Lua Script
+
+"현재 값이 정확히 `held:{token}`인 경우에만 `paid:{token}`으로 교체"라는 CAS(Compare-And-Swap)가 필요합니다. GET과 SET 사이에 다른 클라이언트가 끼어들 수 있으므로, 두 연산을 원자적으로 묶는 Lua Script를 사용합니다.
+
+```lua
+-- pay-seat.lua: held → paid 원자적 전환
+local current = redis.call('GET', KEYS[1])
+if current ~= ARGV[1] then return 1 end    -- 내 hold가 아님
+redis.call('SET', KEYS[1], ARGV[2])         -- SET이 기존 TTL 자동 제거
+return 0
+```
+
+---
+
+### 3. DB 중복 판매 방어: seatNumber UNIQUE 제약
+
+#### 선택: `tickets.seat_number` 컬럼에 UNIQUE 제약
+
+```java
+// TicketJpaEntity.java
+@Column(nullable = false, unique = true)
+private int seatNumber;
+```
+
+**UNIQUE가 없으면 어떤 일이 벌어지는가?**
+
+```
+1. 사용자 A: 좌석 7 hold 성공     → Redis: held:A (TTL 5분)
+2. 사용자 A: DB INSERT 성공        → DB: seat_number=7, PAID (= 결제 완료)
+3. 서버 장애 → Redis paid 전환 실패
+4. held:A TTL 만료                 → Redis: (키 없음)
+5. 사용자 B: 좌석 7 hold 성공      → Redis: held:B (TTL 5분)  ← 키가 없으니 성공
+6. 사용자 B: DB INSERT             → UNIQUE 없으면 성공 → 좌석 7이 A, B 둘 다에게 판매됨
+```
+
+**UNIQUE가 있으면?**
+
+6단계에서 `seat_number UNIQUE` 위반으로 B의 INSERT가 실패합니다. Redis TTL 만료 ~ 동기화 워커 실행 사이의 시간 갭에서 다른 사용자가 같은 좌석을 hold할 수 있지만, DB가 최종 방어선으로 중복 판매를 차단합니다. 이후 동기화 워커가 A의 `paid:{token}`을 Redis에 복원합니다.
+
+---
+
+### 4. 대기열 입장: 잠수 제거 → peek → activate → remove
+
+#### 잠수 유저 제거 (Sorted Set 기반)
+
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다.
+
+```
+waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
+waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 제거용
+```
+
+**동작 흐름**:
+
+| 시점 | waiting_queue | waiting_queue_heartbeat |
+|------|--------------|------------------------|
+| 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
+| 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
+| 잠수 제거 (`AdmissionScheduler.admit()`) | ZREM | ZREMRANGEBYSCORE |
+| 입장 (`AdmissionScheduler.admit()`) | ZREM | ZREM |
+
+**왜 Sorted Set 2개?**
+- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
+- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
+- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
+
+**시간복잡도** (N = 대기열 인원, M = 제거 대상 수):
+
+| 연산 | 명령 | 복잡도 | 빈도 |
+|------|------|--------|------|
+| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
+| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 2초마다 |
+| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
+| 잠수 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
+| rank 조회 | ZRANK | O(log N) | 유저당 2초마다 |
+
+100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 2초마다 1회이므로, 대기자 10만 명이면 ~5만 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+
+#### 입장 후 잠수 유저
+
+입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
+
+#### 입장 제어 (admitBatch)
+
+```java
+// QueueService.java
+// 0. 잠수 유저 제거 (queue-ttl-seconds 동안 폴링 없는 유저)
+waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+
+// 1~3. 입장 처리
+long currentActive = activeUserPort.countActive();
+int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);
+int toAdmit = Math.min(batchSize, slotsAvailable);
+
+List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
+for (String uuid : candidates) {
+    activeUserPort.activate(uuid, activeTtlSeconds);              // 2. active_user 키 생성
+}
+waitingQueuePort.removeBatch(candidates);                         // 3. 큐에서 제거
+```
+
+**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시킨다. 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
+
+**active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
+
+키스페이스가 수만 개 이상이면 `SCAN`도 부담이 된다. Sorted Set(score=만료 시각)으로 바꾸면 `ZCARD` O(1)로 카운트 가능. 단, TTL 자동 만료 대신 만료 시각을 직접 관리해야 한다.
+
+**peek → activate → remove 3단계 분리**:
+
+- **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
+- **activate**: `active_user:{uuid}` 키 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
+- **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
+
+---
+
+## 설계 결정
 
 ### 1. 아키텍처: 헥사고날 vs 레이어드
 
@@ -393,35 +518,7 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 
 ---
 
-### 4. 좌석 Redis 연산: 선점(hold)과 결제 확정(pay)
-
-좌석 상태를 변경하는 Redis 연산은 두 가지인데, 각각 요구사항이 달라 다른 방식을 사용합니다.
-
-#### 선점 (hold): `SET NX EX`
-
-"키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
-
-```java
-// SeatHoldRedisAdapter.java
-Boolean success = redisTemplate.opsForValue()
-        .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
-```
-
-#### 결제 확정 (pay): Lua Script
-
-"현재 값이 정확히 `held:{token}`인 경우에만 `paid:{token}`으로 교체"라는 CAS(Compare-And-Swap)가 필요합니다. GET과 SET 사이에 다른 클라이언트가 끼어들 수 있으므로, 두 연산을 원자적으로 묶는 Lua Script를 사용합니다.
-
-```lua
--- pay-seat.lua: held → paid 원자적 전환
-local current = redis.call('GET', KEYS[1])
-if current ~= ARGV[1] then return 1 end    -- 내 hold가 아님
-redis.call('SET', KEYS[1], ARGV[2])         -- SET이 기존 TTL 자동 제거
-return 0
-```
-
----
-
-### 5. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
+### 4. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
 
 #### 선택: 도메인 엔티티에서 상태 전이 후 save
 
@@ -455,108 +552,7 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 6. DB 중복 판매 방어: seatNumber UNIQUE 제약
-
-#### 선택: `tickets.seat_number` 컬럼에 UNIQUE 제약
-
-```java
-// TicketJpaEntity.java
-@Column(nullable = false, unique = true)
-private int seatNumber;
-```
-
-**UNIQUE가 없으면 어떤 일이 벌어지는가?**
-
-```
-1. 사용자 A: 좌석 7 hold 성공     → Redis: held:A (TTL 5분)
-2. 사용자 A: DB INSERT 성공        → DB: seat_number=7, PAID (= 결제 완료)
-3. 서버 장애 → Redis paid 전환 실패
-4. held:A TTL 만료                 → Redis: (키 없음)
-5. 사용자 B: 좌석 7 hold 성공      → Redis: held:B (TTL 5분)  ← 키가 없으니 성공
-6. 사용자 B: DB INSERT             → UNIQUE 없으면 성공 → 좌석 7이 A, B 둘 다에게 판매됨
-```
-
-**UNIQUE가 있으면?**
-
-6단계에서 `seat_number UNIQUE` 위반으로 B의 INSERT가 실패합니다. Redis TTL 만료 ~ 동기화 워커 실행 사이의 시간 갭에서 다른 사용자가 같은 좌석을 hold할 수 있지만, DB가 최종 방어선으로 중복 판매를 차단합니다. 이후 동기화 워커가 A의 `paid:{token}`을 Redis에 복원합니다.
-
----
-
-### 7. 대기열 입장: 잠수 제거 → peek → activate → remove
-
-#### 잠수 유저 제거 (Sorted Set 기반)
-
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다.
-
-```
-waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
-waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 제거용
-```
-
-**동작 흐름**:
-
-| 시점 | waiting_queue | waiting_queue_heartbeat |
-|------|--------------|------------------------|
-| 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
-| 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
-| 잠수 제거 (`AdmissionScheduler.admit()`) | ZREM | ZREMRANGEBYSCORE |
-| 입장 (`AdmissionScheduler.admit()`) | ZREM | ZREM |
-
-**왜 Sorted Set 2개?**
-- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
-- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
-- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
-
-**시간복잡도** (N = 대기열 인원, M = 제거 대상 수):
-
-| 연산 | 명령 | 복잡도 | 빈도 |
-|------|------|--------|------|
-| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
-| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 2초마다 |
-| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
-| 잠수 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
-| rank 조회 | ZRANK | O(log N) | 유저당 2초마다 |
-
-100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 2초마다 1회이므로, 대기자 10만 명이면 ~5만 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
-
-#### 입장 후 잠수 유저
-
-입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
-
-#### 입장 제어 (admitBatch)
-
-```java
-// QueueService.java
-// 0. 잠수 유저 제거 (queue-ttl-seconds 동안 폴링 없는 유저)
-waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
-
-// 1~3. 입장 처리
-long currentActive = activeUserPort.countActive();
-int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);
-int toAdmit = Math.min(batchSize, slotsAvailable);
-
-List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
-for (String uuid : candidates) {
-    activeUserPort.activate(uuid, activeTtlSeconds);              // 2. active_user 키 생성
-}
-waitingQueuePort.removeBatch(candidates);                         // 3. 큐에서 제거
-```
-
-**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시킨다. 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
-
-**active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
-
-키스페이스가 수만 개 이상이면 `SCAN`도 부담이 된다. Sorted Set(score=만료 시각)으로 바꾸면 `ZCARD` O(1)로 카운트 가능. 단, TTL 자동 만료 대신 만료 시각을 직접 관리해야 한다.
-
-**peek → activate → remove 3단계 분리**:
-
-- **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
-- **activate**: `active_user:{uuid}` 키 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
-- **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
-
----
-
-### 8. 클라이언트 통신: 폴링 vs WebSocket vs SSE
+### 5. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
 #### 선택: 20초 주기 HTTP 폴링
 
@@ -571,8 +567,6 @@ waitingQueuePort.removeBatch(candidates);                         // 3. 큐에�
 **트레이드오프**:
 - **불필요한 요청**: 순번 변화가 없어도 20초마다 요청을 보냅니다. 대기자 50만 명 × 0.05 req/s = ~2.5만 req/s.
 - **최대 20초 지연**: 입장이 허용된 직후부터 최대 20초 후에야 클라이언트가 인지합니다.
-
----
 
 ---
 
