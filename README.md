@@ -590,8 +590,8 @@ k6 run k6/full-flow.js
 
 | 스크립트 | VU | 동작 | 종료 조건 |
 |---------|-----|------|----------|
-| `enter-stress.js` | 500 | `POST /api/queues/tokens` 무한 반복 | 5분 경과 |
-| `queue-stress.js` | 4,500 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 | ACTIVE/SOLD_OUT 또는 5분 경과 |
+| `enter-stress.js` | 500 | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
+| `queue-stress.js` | 4,500 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 ```bash
 # 터미널 2개에서 동시에 실행
@@ -719,26 +719,26 @@ kr.jemi.zticket
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
-│   │   │   │   ├── EnterQueueUseCase.java
-│   │   │   │   ├── GetQueueTokenUseCase.java
-│   │   │   │   └── AdmitUsersUseCase.java
+│   │   │   │   ├── EnterQueueUseCase.java         대기열 진입
+│   │   │   │   ├── GetQueueTokenUseCase.java      토큰 상태·순번 조회
+│   │   │   │   └── AdmitUsersUseCase.java         대기 → active 배치 입장
 │   │   │   └── out/
-│   │   │       ├── WaitingQueuePort.java
-│   │   │       └── ActiveUserPort.java
-│   │   └── QueueService.java
+│   │   │       ├── WaitingQueuePort.java          대기열 Sorted Set 조작
+│   │   │       └── ActiveUserPort.java            active 유저 SET 조작
+│   │   └── QueueService.java                      대기열 비즈니스 로직
 │   └── adapter/
 │       ├── in/
 │       │   ├── web/
 │       │   │   ├── QueueApiController.java     /api/queues/tokens/**
 │       │   │   └── dto/
-│       │   │       ├── TokenResponse.java
-│       │   │       └── QueueStatusResponse.java
+│       │   │       ├── TokenResponse.java              진입 응답 (uuid)
+│       │   │       └── QueueStatusResponse.java        폴링 응답 (status, rank)
 │       │   └── scheduler/
-│       │       └── AdmissionScheduler.java     60초 배치 입장
+│       │       └── AdmissionScheduler.java     60초 배치 입장 + 잠수 유저 제거
 │       └── out/
 │           └── redis/
-│               ├── WaitingQueueRedisAdapter.java
-│               └── ActiveUserRedisAdapter.java
+│               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
+│               └── ActiveUserRedisAdapter.java    SET 기반 active 관리
 │
 ├── seat/                                       좌석 도메인 (독립)
 │   ├── domain/
@@ -747,7 +747,7 @@ kr.jemi.zticket
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
-│   │   │   │   └── GetSeatsUseCase.java
+│   │   │   │   └── GetSeatsUseCase.java           좌석 현황 조회
 │   │   │   └── out/
 │   │   │       └── SeatHoldPort.java           hold/pay/release/setPaid/getStatuses
 │   │   └── SeatService.java                    좌석 현황 조회
@@ -756,8 +756,8 @@ kr.jemi.zticket
 │       │   └── web/
 │       │       ├── SeatApiController.java      /api/seats, /api/seats/available-count
 │       │       └── dto/
-│       │           ├── SeatStatusResponse.java
-│       │           └── AvailableCountResponse.java
+│       │           ├── SeatStatusResponse.java         좌석별 상태
+│       │           └── AvailableCountResponse.java    잔여 좌석 수
 │       └── out/
 │           └── redis/
 │               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(Lua)
@@ -781,24 +781,24 @@ kr.jemi.zticket
 │       │   │   ├── TicketApiController.java    /api/tickets
 │       │   │   └── dto/
 │       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
-│       │   │       └── PurchaseResponse.java
+│       │   │       └── PurchaseResponse.java   구매 결과 (ticketId, seatNumber)
 │       │   └── scheduler/
 │       │       └── SyncScheduler.java          1분 PAID 동기화
 │       └── out/
 │           └── persistence/
 │               ├── TicketJpaEntity.java         seatNumber UNIQUE
-│               ├── TicketJpaRepository.java
+│               ├── TicketJpaRepository.java        Spring Data JPA
 │               └── TicketJpaAdapter.java        Upsert 패턴 (findById 기반)
 │
 ├── common/
 │   ├── web/
 │   │   └── PageController.java                 Thymeleaf 뷰 (여러 도메인에 걸침)
 │   ├── exception/
-│   │   ├── ErrorCode.java
-│   │   ├── BusinessException.java
-│   │   └── GlobalExceptionHandler.java
+│   │   ├── ErrorCode.java                         에러 코드 enum
+│   │   ├── BusinessException.java                 비즈니스 예외
+│   │   └── GlobalExceptionHandler.java            @RestControllerAdvice
 │   └── dto/
-│       └── ErrorResponse.java
+│       └── ErrorResponse.java                     에러 응답 DTO
 │
 └── config/
     └── RedisConfig.java                        paySeatScript 빈 등록
