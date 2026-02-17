@@ -608,39 +608,37 @@ k6 run k6/queue-stress.js &
 
 #### HTTP
 
-| 엔드포인트 | 처리량 | p95 | p99 | 에러율 |
-|-----------|--------|-----|-----|-------|
-| `POST /api/queues/tokens` | 1,517 req/s | 20ms | 35ms | 0% |
-| `GET /api/queues/tokens/{uuid}` | 13,659 req/s | 20ms | 34ms | 0% |
-| **합계** | **~15,200 req/s** | | | **0%** |
+| 엔드포인트 | 처리량 | p95 | p99 | p99.9 | 에러율 |
+|-----------|--------|-----|-----|-------|-------|
+| `POST /api/queues/tokens` | 1,553 req/s | 20ms | 33ms | 62ms | 0% |
+| `GET /api/queues/tokens/{uuid}` | 13,953 req/s | 20ms | 33ms | 62ms | 0% |
+| **합계** | **~15,500 req/s** | | | | **0%** |
 
 #### Redis
 
-| 명령 | p95 | p99 | 용도 |
-|------|-----|-----|------|
-| ZADD | 3.8ms | 5.6ms | 대기열 진입 |
-| ZRANK | 3.8ms | 5.6ms | 순번 조회 |
-| EXISTS | 4.1ms | 6.0ms | active 유저 확인 |
-| MGET | 4.3ms | 5.3ms | 좌석 상태 조회 |
-| ZRANGEBYSCORE | 33ms | 34ms | 잠수 유저 탐색 |
-| ZREM | 88ms | 89ms | 잠수 유저 제거 |
-| **전체** | | | **45,571 ops/s** |
+| 명령 | p95 | p99 | p99.9 | 용도 |
+|------|-----|-----|-------|------|
+| ZADD | 3.7ms | 5.5ms | 25ms | 대기열 진입 |
+| ZRANK | 3.7ms | 5.5ms | 25ms | 순번 조회 |
+| EXISTS | 4.0ms | 5.8ms | 26ms | active 토큰 확인 |
+| ZRANGEBYSCORE | 5.7ms | 6.7ms | 7.0ms | 잠수 유저 탐색 (5,000건 배치) |
+| ZREM | 8.7ms | 11ms | 11ms | 잠수 유저 제거 (5,000건 배치) |
+| **전체** | | | | **45,305 ops/s** |
 
 #### 시스템 리소스
 
 | 지표 | 값 | 비고 |
 |------|-----|------|
 | Tomcat Threads | 200 / 200 | 포화 (병목 지점) |
-| TCP Connections | 5,003 | |
 | Process CPU | 35% | 앱 자체는 여유 |
-| System CPU | 81% | k6와 CPU 경합 |
-| JVM Heap | 492MB / 9,216MB | 여유 |
+| System CPU | 87% | k6와 CPU 경합 |
+| JVM Heap | 312MB / 9,216MB | 여유 |
 | HikariCP | active 0, pending 0 | DB 미사용 구간 |
 
 #### 분석
 
-- **처리량**: Tomcat 200 스레드로 15,200 req/s를 처리. 스레드가 포화 상태이므로 `server.tomcat.threads.max`를 늘리면 처리량 증가 가능.
-- **응답 시간**: p99 기준 34~35ms로 양호. Redis 단일 명령은 대부분 p99 6ms 이내.
+- **처리량**: Tomcat 200 스레드로 15,500 req/s를 처리. 스레드가 포화 상태이므로 `server.tomcat.threads.max`를 늘리면 처리량 증가 예상.
+- **응답 시간**: p99 33ms, p99.9 62ms. Redis 단일 명령은 대부분 p99 6ms 이내. 잠수 유저 제거(ZREM)는 5,000건 배치 처리로 p99 11ms.
 - **에러율**: 0%. 대기열 진입과 폴링 모두 에러 없음.
 - **병목**: Tomcat 스레드 포화 + 단일 머신 CPU 경합. Redis와 DB는 여유.
 
@@ -648,9 +646,9 @@ k6 run k6/queue-stress.js &
 
 | 지표 | 수치 | 의미 |
 |------|------|------|
-| 진입 처리 | 1,500명/초 | 1분에 9만 명 대기열 진입 가능 |
-| 폴링 수용 | 13,600 req/s | 60초 폴링 기준 **~80만 명** 동시 대기 가능 |
-| 응답 시간 | p99 35ms | 사용자 체감 없음 |
+| 진입 처리 | 1,553명/초 | 1분에 ~9.3만 명 대기열 진입 가능 |
+| 폴링 수용 | 13,953 req/s | 60초 폴링 기준 **~84만 명** 동시 대기 가능 |
+| 응답 시간 | p99 33ms, p99.9 62ms | 사용자 체감 없음 |
 
 단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. k6와 앱이 같은 머신에서 CPU를 경합하는 환경이므로, 분리 시 더 높은 수치가 나올 것으로 예상됩니다.
 
@@ -683,6 +681,7 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
 | HTTP Response Time (p95) | 응답 시간 — 체감 지연 |
 | HTTP Response Time (p99) | 꼬리 지연 (tail latency) |
+| HTTP Response Time (p99.9) | 극단 지연 |
 | HTTP Error Rate | 4xx/5xx 에러 비율 |
 | Tomcat Threads | busy/current/max 스레드 — 요청 처리 용량 |
 | HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
@@ -694,6 +693,7 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | Redis Command Rate | Redis 명령 초당 처리량 (ops/s) |
 | Redis Latency (p95) | Redis 명령 응답 시간 — 체감 지연 |
 | Redis Latency (p99) | Redis 꼬리 지연 |
+| Redis Latency (p99.9) | Redis 극단 지연 |
 
 ### Actuator 엔드포인트
 
@@ -876,7 +876,7 @@ zticket:
 ```
 
 **핵심 제약**:
-- `active-ttl-seconds(300초)` = `hold-ttl-seconds(300초)`: active 유저의 세션 시간과 좌석 선점 시간이 동일해야 합니다. active가 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있고, hold가 먼저 만료되면 구매 중 좌석이 풀립니다.
+- `active-ttl-seconds(300초)` >= `hold-ttl-seconds(300초)`: active 세션이 좌석 선점보다 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있는 상태가 됩니다. hold가 먼저 만료되면 구매 중 좌석이 풀리므로, active TTL은 hold TTL과 같거나 커야 합니다.
 - `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
 
 

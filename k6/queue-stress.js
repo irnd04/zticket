@@ -13,7 +13,7 @@ export const options = {
         queue_stress: {
             executor: 'constant-vus',
             vus: 4500,
-            duration: '5m',
+            duration: '10m',
         },
     },
     thresholds: {

@@ -12,7 +12,7 @@ export const options = {
         enter_stress: {
             executor: 'constant-vus',
             vus: 500,
-            duration: '5m',
+            duration: '10m',
         },
     },
     thresholds: {

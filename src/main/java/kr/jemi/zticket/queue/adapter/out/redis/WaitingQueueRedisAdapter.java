@@ -14,6 +14,7 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
 
     private static final String KEY = "waiting_queue";
     private static final String HEARTBEAT_KEY = "waiting_queue_heartbeat";
+    private static final int EXPIRE_BATCH_SIZE = 5000;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -70,13 +71,18 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
 
     @Override
     public long removeExpired(long cutoffTimestamp) {
-        Set<String> expired = redisTemplate.opsForZSet().rangeByScore(HEARTBEAT_KEY, 0, cutoffTimestamp);
-        if (expired == null || expired.isEmpty()) {
-            return 0;
+        long totalRemoved = 0;
+        while (true) {
+            Set<String> batch = redisTemplate.opsForZSet()
+                    .rangeByScore(HEARTBEAT_KEY, 0, cutoffTimestamp, 0, EXPIRE_BATCH_SIZE);
+            if (batch == null || batch.isEmpty()) {
+                break;
+            }
+            Object[] uuids = batch.toArray();
+            redisTemplate.opsForZSet().remove(HEARTBEAT_KEY, uuids);
+            redisTemplate.opsForZSet().remove(KEY, uuids);
+            totalRemoved += batch.size();
         }
-        Object[] uuids = expired.toArray();
-        redisTemplate.opsForZSet().remove(HEARTBEAT_KEY, uuids);
-        redisTemplate.opsForZSet().remove(KEY, uuids);
-        return expired.size();
+        return totalRemoved;
     }
 }
