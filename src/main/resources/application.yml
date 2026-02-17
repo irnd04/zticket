@@ -66,13 +66,13 @@ management:
 
 zticket:
   admission:
-    batch-size: 200
+    batch-size: 2000
     interval-ms: 20000
     active-ttl-seconds: 300
-    max-active-users: 200
+    max-active-users: 2000
     queue-ttl-seconds: 120
   seat:
-    total-count: 50
+    total-count: 1000
     hold-ttl-seconds: 300
   sync:
     interval-ms: 60000

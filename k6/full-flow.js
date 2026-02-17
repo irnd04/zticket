@@ -14,7 +14,7 @@ export const options = {
     scenarios: {
         ticket_rush: {
             executor: 'per-vu-iterations',
-            vus: 1000,
+            vus: 6000,
             iterations: 1,          // VU당 1회만 실행
             maxDuration: '5m',
         },
@@ -61,45 +61,46 @@ export default function () {
     queueWaitTime.add(Date.now() - waitStart);
     if (!active) return;
 
-    // === 3. 좌석 조회 ===
-    const seatsRes = http.get(`${BASE_URL}/api/seats`, {
-        headers: { 'X-Queue-Token': uuid },
-    });
+    // === 3~4. 좌석 조회 → 구매 (성공하거나 매진될 때까지 반복) ===
+    while (true) {
+        const seatsRes = http.get(`${BASE_URL}/api/seats`, {
+            headers: { 'X-Queue-Token': uuid },
+        });
 
-    const seatsOk = check(seatsRes, {
-        'seats: status 200': (r) => r.status === 200,
-    });
-    if (!seatsOk) return;
+        const seatsOk = check(seatsRes, {
+            'seats: status 200': (r) => r.status === 200,
+        });
+        if (!seatsOk) return;
 
-    const seats = seatsRes.json();
-    const available = seats.filter((s) => s.status === 'available');
+        const seats = seatsRes.json();
+        const available = seats.filter((s) => s.status === 'available');
 
-    if (available.length === 0) {
-        return;  // 매진
-    }
-
-    // 랜덤 좌석 선택
-    const seat = available[Math.floor(Math.random() * available.length)];
-
-    // === 4. 티켓 구매 ===
-    const purchaseRes = http.post(
-        `${BASE_URL}/api/tickets`,
-        JSON.stringify({ seatNumber: seat.seatNumber }),
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Queue-Token': uuid,
-            },
+        if (available.length === 0) {
+            return;  // 매진
         }
-    );
 
-    const purchased = check(purchaseRes, {
-        'purchase: status 200': (r) => r.status === 200,
-    });
+        const seat = available[Math.floor(Math.random() * available.length)];
 
-    if (purchased) {
-        purchaseSuccess.add(1);
-    } else {
+        const purchaseRes = http.post(
+            `${BASE_URL}/api/tickets`,
+            JSON.stringify({ seatNumber: seat.seatNumber }),
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Queue-Token': uuid,
+                },
+            }
+        );
+
+        const purchased = check(purchaseRes, {
+            'purchase: status 200': (r) => r.status === 200,
+        });
+
+        if (purchased) {
+            purchaseSuccess.add(1);
+            return;
+        }
+
         purchaseFail.add(1);
     }
 }

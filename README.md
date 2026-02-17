@@ -801,7 +801,7 @@ queue  → (독립)
 src/main/resources/templates/
 ├── index.html              메인 (대기열 진입 버튼)
 ├── queue.html              대기열 (순번 표시, 20초 폴링, ACTIVE 시 자동 이동)
-├── purchase.html           좌석 선택 + 구매 (50석 전용 5x10 그리드, A1~E10)
+├── purchase.html           좌석 선택 + 구매 (1000석, 50×20 그리드, A1~AX20)
 └── confirmation.html       구매 결과 (성공/실패)
 ```
 
@@ -836,13 +836,13 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    batch-size: 200         # 20초마다 최대 입장 인원 수
+    batch-size: 2000        # 20초마다 최대 입장 인원 수
     interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
-    max-active-users: 200   # 동시 active 유저 상한
+    max-active-users: 2000  # 동시 active 유저 상한
     queue-ttl-seconds: 120  # 대기열 잠수 제거 기준 (2분간 폴링 없으면 제거)
   seat:
-    total-count: 50         # 총 좌석 수
+    total-count: 1000       # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
   sync:
     interval-ms: 60000      # 동기화 워커 실행 주기 (1분)
