@@ -34,7 +34,7 @@ spring:
   cache:
     type: caffeine
     caffeine:
-      spec: maximumSize=1,expireAfterWrite=2s
+      spec: maximumSize=1,expireAfterWrite=60s
 
   data:
     redis:
@@ -61,10 +61,10 @@ management:
 zticket:
   admission:
     batch-size: 200
-    interval-ms: 20000
+    interval-ms: 60000
     active-ttl-seconds: 300
     max-active-users: 200
-    queue-ttl-seconds: 180
+    queue-ttl-seconds: 300
   seat:
     total-count: 50
     hold-ttl-seconds: 300

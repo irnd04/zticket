@@ -87,7 +87,7 @@ sequenceDiagram
     R-->>Q: rank
     Q-->>U: { uuid, rank }
 
-    loop 20초 폴링
+    loop 60초 폴링
         U->>Q: GET /api/queues/tokens/{uuid}
         alt active_user:{uuid} 존재
             Q-->>U: ACTIVE → 좌석 선택 페이지로 이동
@@ -112,7 +112,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[AdmissionScheduler 매 20초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 3분 이상 지난 유저 조회"]
+    A[AdmissionScheduler 매 60초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 3분 이상 지난 유저 조회"]
     B --> C{잠수 유저 있음?}
     C -- 없음 --> END[입장 처리로 진행]
     C -- 있음 --> D[ZREM waiting_queue 에서 제거]
@@ -126,7 +126,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph 정상 유저
-        N1[20초마다 폴링] --> N2[heartbeat score 갱신] --> N3[ZRANGEBYSCORE에 안 걸림 ✅]
+        N1[60초마다 폴링] --> N2[heartbeat score 갱신] --> N3[ZRANGEBYSCORE에 안 걸림 ✅]
     end
     subgraph 잠수 유저
         G1[브라우저 닫음] --> G2[폴링 중단] --> G3[score가 3분+ 과거] --> G4[ZRANGEBYSCORE에 걸림 → 제거 ❌]
@@ -137,7 +137,7 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    participant S as AdmissionScheduler<br/>(매 20초)
+    participant S as AdmissionScheduler<br/>(매 60초)
     participant Q as QueueService
     participant R as Redis
 
@@ -475,8 +475,8 @@ public Ticket save(Ticket ticket) {
 - **인프라 단순성**: 이미 좌석 선점용으로 Redis를 사용하므로, 별도 인프라를 추가하지 않습니다.
 
 **트레이드오프**:
-- **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 20초 폴링 = ~50만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
-  - **폴링 주기 늘리기**: 20초 → 60초로 변경하면 ~50만 → ~17만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장 알림이 최대 60초까지 지연됩니다.
+- **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 60초 폴링 = ~17만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
+  - **폴링 주기 늘리기**: 60초 → 120초로 변경하면 ~17만 → ~8만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장 알림이 최대 120초까지 지연됩니다.
   - **Redis Cluster 샤딩**: 처리량 자체를 수평 확장. 폴링 주기를 유지하면서 대규모 대기열을 처리할 수 있지만, 인프라 복잡도가 증가합니다.
 - **영속성 부재**: Redis 장애 시 대기열 유실. 다만 선착순 대기열은 일시적 데이터이므로 재진입이 합리적.
 - **순서 보장 범위**: `System.currentTimeMillis()` 기반 score는 밀리초 내 동시 요청 시 순서가 불확실하지만, 밀리초 내 차이는 공정성 기준에서 무시 가능.
@@ -533,7 +533,7 @@ public Ticket save(Ticket ticket) {
 
 ### 5. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
-#### 선택: 20초 주기 HTTP 폴링
+#### 선택: 60초 주기 HTTP 폴링
 
 **WebSocket / SSE를 사용하지 않는 이유**:
 - **WebSocket**: 서버가 각 클라이언트와 상시 TCP 연결을 유지해야 합니다. 대기자 50만 명이면 50만 개의 커넥션이 동시에 열려있어야 하고, 로드밸런서에서 같은 클라이언트를 같은 서버로 라우팅하는 sticky session 설정이 필요합니다.
@@ -544,8 +544,8 @@ public Ticket save(Ticket ticket) {
 - **인프라 단순성**: 일반 REST API이므로 별도 설정 없이 모든 로드밸런서/CDN과 호환됩니다.
 
 **트레이드오프**:
-- **불필요한 요청**: 순번 변화가 없어도 20초마다 요청을 보냅니다. 대기자 50만 명 × 0.05 req/s = ~2.5만 req/s.
-- **최대 20초 지연**: 입장이 허용된 직후부터 최대 20초 후에야 클라이언트가 인지합니다.
+- **불필요한 요청**: 순번 변화가 없어도 60초마다 요청을 보냅니다. 대기자 50만 명 × ~0.017 req/s = ~8,300 req/s.
+- **최대 60초 지연**: 입장이 허용된 직후부터 최대 60초 후에야 클라이언트가 인지합니다.
 
 ---
 
@@ -579,7 +579,7 @@ kr.jemi.zticket
 │       │   │       ├── TokenResponse.java
 │       │   │       └── QueueStatusResponse.java
 │       │   └── scheduler/
-│       │       └── AdmissionScheduler.java     20초 배치 입장
+│       │       └── AdmissionScheduler.java     60초 배치 입장
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java
@@ -707,8 +707,8 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    batch-size: 200         # 20초마다 최대 입장 인원 수
-    interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
+    batch-size: 200         # 60초마다 최대 입장 인원 수
+    interval-ms: 60000      # 입장 스케줄러 실행 주기 (60초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 200   # 동시 active 유저 상한
     queue-ttl-seconds: 180  # 대기열 잠수 제거 기준 (3분간 폴링 없으면 제거)
@@ -742,7 +742,7 @@ VU 동시 시작 (각 VU 1회만 실행)
     │
     ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
     │
-    ├── 2. GET /api/queues/tokens/{uuid}   2초 폴링, ACTIVE까지 대기
+    ├── 2. GET /api/queues/tokens/{uuid}   60초 폴링, ACTIVE까지 대기
     │       (반복)
     │
     ├── 3. GET /api/seats                  빈 좌석 조회
