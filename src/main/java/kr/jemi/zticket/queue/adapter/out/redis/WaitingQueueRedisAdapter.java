@@ -44,6 +44,9 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
 
     @Override
     public List<String> peekBatch(int count) {
+        if (count <= 0) {
+            return List.of();
+        }
         Set<String> members = redisTemplate.opsForZSet().range(KEY, 0, count - 1);
         if (members == null || members.isEmpty()) {
             return List.of();

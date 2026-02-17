@@ -3,7 +3,7 @@ package kr.jemi.zticket.queue.adapter.in.web;
 import kr.jemi.zticket.queue.adapter.in.web.dto.QueueStatusResponse;
 import kr.jemi.zticket.queue.adapter.in.web.dto.TokenResponse;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
-import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
+import kr.jemi.zticket.queue.application.port.in.GetQueueTokenUseCase;
 import kr.jemi.zticket.queue.domain.QueueToken;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,12 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class QueueApiController {
 
     private final EnterQueueUseCase enterQueueUseCase;
-    private final GetQueueStatusUseCase getQueueStatusUseCase;
+    private final GetQueueTokenUseCase getQueueTokenUseCase;
 
     public QueueApiController(EnterQueueUseCase enterQueueUseCase,
-                              GetQueueStatusUseCase getQueueStatusUseCase) {
+                              GetQueueTokenUseCase getQueueTokenUseCase) {
         this.enterQueueUseCase = enterQueueUseCase;
-        this.getQueueStatusUseCase = getQueueStatusUseCase;
+        this.getQueueTokenUseCase = getQueueTokenUseCase;
     }
 
     @PostMapping("/api/queues/tokens")
@@ -30,8 +30,8 @@ public class QueueApiController {
     }
 
     @GetMapping("/api/queues/tokens/{uuid}")
-    public ResponseEntity<QueueStatusResponse> getStatus(@PathVariable String uuid) {
-        QueueToken token = getQueueStatusUseCase.getStatus(uuid);
+    public ResponseEntity<QueueStatusResponse> getQueueToken(@PathVariable String uuid) {
+        QueueToken token = getQueueTokenUseCase.getQueueToken(uuid);
         return ResponseEntity.ok(QueueStatusResponse.from(token));
     }
 }

@@ -4,7 +4,7 @@ import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
-import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
+import kr.jemi.zticket.queue.application.port.in.GetQueueTokenUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.domain.QueueStatus;
 import kr.jemi.zticket.queue.domain.QueueToken;
@@ -24,7 +24,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
     EnterQueueUseCase enterQueueUseCase;
 
     @Autowired
-    GetQueueStatusUseCase getQueueStatusUseCase;
+    GetQueueTokenUseCase getQueueTokenUseCase;
 
     @Autowired
     AdmitUsersUseCase admitUsersUseCase;
@@ -66,13 +66,13 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
     void status_lifecycle_waiting_active() {
         QueueToken token = enterQueueUseCase.enter();
 
-        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).status())
+        assertThat(getQueueTokenUseCase.getQueueToken(token.uuid()).status())
                 .as("WAITING")
                 .isEqualTo(QueueStatus.WAITING);
 
         admitUsersUseCase.admitBatch(1);
 
-        assertThat(getQueueStatusUseCase.getStatus(token.uuid()).status())
+        assertThat(getQueueTokenUseCase.getQueueToken(token.uuid()).status())
                 .as("ACTIVE")
                 .isEqualTo(QueueStatus.ACTIVE);
     }
@@ -86,7 +86,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
         // active 키 직접 삭제하여 TTL 만료 시뮬레이션
         redisTemplate.delete("active_user:" + token.uuid());
 
-        assertThatThrownBy(() -> getQueueStatusUseCase.getStatus(token.uuid()))
+        assertThatThrownBy(() -> getQueueTokenUseCase.getQueueToken(token.uuid()))
                 .isInstanceOfSatisfying(BusinessException.class, e ->
                         assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
     }

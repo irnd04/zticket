@@ -2,7 +2,7 @@
 
 수백만 명 동시 접속 상황에서 선착순 좌석 티켓 구매를 처리하는 시스템입니다.
 Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
-**이중 판매 없는 정합성**과 **높은 처리량**을 동시에 달성합니다.
+**중복 판매 없는 정합성**과 **높은 처리량**을 동시에 달성합니다.
 
 ---
 
@@ -87,67 +87,154 @@ open http://localhost:3000   # Grafana (admin / admin)
 
 ### 1. 대기열 플로우
 
-```
-사용자                  QueueService              Redis
-  │                        │                       │
-  │── POST /api/queue/token ──▶ enter()             │
-  │                        │── ZADD waiting_queue ──▶│
-  │◀── { uuid, rank } ──── │◀── rank ───────────────│
-  │                        │                       │
-  │── GET /status/{uuid} ──▶ getStatus()            │
-  │  (2초 폴링)            │── ZRANK ──────────────▶│
-  │◀── WAITING/ACTIVE ──── │◀── rank ───────────────│
-  │                        │                       │
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant Q as QueueService
+    participant R as Redis
 
-        AdmissionScheduler (매 1초)
-              │
-              │── countActive() → 현재 active 유저 수 확인
-              │── toAdmit = min(batchSize, maxActive - currentActive)
-              │── admitBatch(toAdmit) ─▶ ZRANGE + ZREM + SET active_user EX 300
-```
+    U->>Q: POST /api/queues/tokens
+    Q->>R: ZADD waiting_queue (score=진입시각)
+    Q->>R: ZADD waiting_queue_heartbeat (score=진입시각)
+    R-->>Q: rank
+    Q-->>U: { uuid, rank }
 
-### 2. 구매 플로우 (5단계 2-Phase)
-
-```
-클라이언트         TicketService            Redis                MySQL
-  │                    │                      │                     │
-  │── purchase ───────▶│                      │                     │
-  │                    │                      │                     │
-  │                    │── 1. 활성 사용자 검증 │                     │
-  │                    │   isActive(token) ──▶│                     │
-  │                    │◀── true ─────────────│                     │
-  │                    │                      │                     │
-  │                    │── 2. holdSeat ──────▶│                     │
-  │                    │   SET seat:N          │                     │
-  │                    │   "held:{token}"      │                     │
-  │                    │   NX EX 300           │                     │
-  │                    │◀── 성공/실패 ─────────│                     │
-  │                    │                      │                     │
-  │                    │── 3. save(PAID) ─────│────────────────────▶│
-  │                    │                      │   INSERT ticket     │
-  │                    │                      │   (status=PAID)     │
-  │                    │                      │                     │
-  │                    │── 4. paySeat ───────▶│                     │
-  │                    │   Lua: held→paid      │                     │
-  │                    │                      │                     │
-  │                    │── 5. sync() + save ──│────────────────────▶│
-  │                    │                      │   UPDATE SYNCED     │
-  │◀── 완료 ──────────│                      │                     │
+    loop 20초 폴링
+        U->>Q: GET /api/queues/tokens/{uuid}
+        alt active_user:{uuid} 존재
+            Q-->>U: ACTIVE → 좌석 선택 페이지로 이동
+        else 잔여 좌석 = 0
+            Q-->>U: SOLD_OUT → 매진 안내
+        else 대기 중
+            Q->>R: ZRANK waiting_queue
+            Q->>R: ZADD waiting_queue_heartbeat (score=현재시각)
+            R-->>Q: rank
+            Q-->>U: WAITING (현재 순번)
+        end
+    end
 ```
 
-### 3. 동기화 워커 플로우
+- **진입 시**: `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
+- **폴링 시**: `waiting_queue_heartbeat`의 score만 현재 시각으로 갱신 (순서를 유지하기 위해 `waiting_queue`는 건드리지 않음)
+- **SOLD_OUT 판정**: 잔여 좌석이 0이면 대기열 순번 조회 없이 즉시 SOLD_OUT 반환
 
+### 2. 잠수 유저 제거 플로우
+
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거합니다.
+
+```mermaid
+flowchart TD
+    A[AdmissionScheduler 매 20초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 3분 이상 지난 유저 조회"]
+    B --> C{잠수 유저 있음?}
+    C -- 없음 --> END[입장 처리로 진행]
+    C -- 있음 --> D[ZREM waiting_queue 에서 제거]
+    D --> E[ZREM waiting_queue_heartbeat 에서 제거]
+    E --> END
+
+    style A fill:#f9f,stroke:#333
+    style END fill:#9f9,stroke:#333
 ```
-SyncScheduler (매 1분)
-  │
-  ├── DB에서 status=PAID 티켓 조회
-  │
-  └── 각 PAID 티켓에 대해:
-        │
-        ├── Redis SET seat:{n} "paid:{token}"
-        │   (held/null 어떤 상태든 paid로 덮어씀, SET이 기존 TTL 자동 제거)
-        │
-        └── DB UPDATE status=SYNCED
+
+```mermaid
+flowchart LR
+    subgraph 정상 유저
+        N1[20초마다 폴링] --> N2[heartbeat score 갱신] --> N3[ZRANGEBYSCORE에 안 걸림 ✅]
+    end
+    subgraph 잠수 유저
+        G1[브라우저 닫음] --> G2[폴링 중단] --> G3[score가 3분+ 과거] --> G4[ZRANGEBYSCORE에 걸림 → 제거 ❌]
+    end
+```
+
+### 3. 입장 스케줄러 플로우
+
+```mermaid
+sequenceDiagram
+    participant S as AdmissionScheduler<br/>(매 20초)
+    participant Q as QueueService
+    participant R as Redis
+
+    S->>Q: admitBatch()
+
+    Note over Q,R: 0. 잠수 유저 제거 (위 플로우 참고)
+
+    Q->>R: SCAN active_user:* → 현재 active 수 확인
+    R-->>Q: currentActive
+
+    Note over Q: toAdmit = min(batchSize, maxActive - currentActive)
+
+    Q->>R: ZRANGE waiting_queue 0 (toAdmit-1)
+    R-->>Q: [uuid1, uuid2, ...]
+    Note right of R: peek: 조회만, 삭제 안 함
+
+    loop 각 uuid에 대해
+        Q->>R: SET active_user:{uuid} "1" EX 300
+    end
+    Note right of R: activate: 입장 처리
+
+    Q->>R: ZREM waiting_queue {uuids}
+    Q->>R: ZREM waiting_queue_heartbeat {uuids}
+    Note right of R: remove: activate 후에야 큐에서 제거
+```
+
+**peek → activate → remove 3단계 분리**: peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
+
+### 4. 구매 플로우 (5단계 2-Phase)
+
+> 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
+
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant T as TicketService
+    participant R as Redis
+    participant DB as MySQL
+
+    C->>T: POST /api/tickets
+
+    T->>R: 1. isActive(token)
+    alt 비활성 사용자
+        R-->>T: false
+        T-->>C: NOT_ACTIVE_USER
+    end
+    R-->>T: true
+
+    T->>R: 2. SET seat:N "held:{token}" NX EX 300
+    alt 이미 선점된 좌석
+        R-->>T: false
+        T-->>C: SEAT_ALREADY_HELD
+    end
+    R-->>T: true
+
+    T->>DB: 3. INSERT ticket (status=PAID)
+    alt DB 저장 실패
+        T->>R: DEL seat:N (롤백)
+        T-->>C: INTERNAL_ERROR
+    end
+
+    T->>R: 4. Lua: held → paid 전환
+    alt paid 전환 실패
+        Note over T: 동기화 워커가 복구 예정
+        T-->>C: 티켓 반환 (status=PAID)
+    end
+
+    T->>DB: 5. UPDATE ticket SET status=SYNCED
+    T-->>C: 완료 (status=SYNCED)
+```
+
+### 5. 동기화 워커 플로우
+
+```mermaid
+flowchart TD
+    A[SyncScheduler 매 1분] --> B[DB에서 status=PAID 티켓 조회]
+    B --> C{PAID 티켓 있음?}
+    C -- 없음 --> END[종료]
+    C -- 있음 --> D[각 PAID 티켓에 대해]
+    D --> E["Redis SET seat:{n} paid:{token}<br/>(기존 TTL 자동 제거, 영구 키)"]
+    E --> F[DB UPDATE status=SYNCED]
+    F --> D
+
+    style A fill:#f9f,stroke:#333
+    style END fill:#9f9,stroke:#333
 ```
 
 ---
@@ -168,7 +255,7 @@ SyncScheduler (매 1분)
 상태: Redis에 held:{token} (TTL 째깍째깍) + DB 레코드 없음
 위험: 좌석이 5분간 불필요하게 점유됨
 해결: catch 블록에서 즉시 DEL seat:{n} 롤백
-안전망: 롤백마저 실패해도 TTL 5분이 자동 해제 → 일시적 불편일 뿐 이중 판매 없음
+안전망: 롤백마저 실패해도 TTL 5분이 자동 해제 → 일시적 불편일 뿐 중복 판매 없음
 ```
 
 ### Case 2: Redis held + DB PAID 성공 → Redis paid 전환 중 서버 사망
@@ -179,20 +266,20 @@ SyncScheduler (매 1분)
 해결: 동기화 워커가 1분마다 PAID 조회 → setPaidSeat으로 Redis에 paid:{token} 복원
 안전망: TTL 만료 전에 동기화 워커가 처리. 설령 TTL 만료 후 다른 사용자가 hold해도
        DB tickets 테이블의 seatNumber UNIQUE 제약 때문에 해당 사용자의 DB 저장이 실패함.
-       따라서 setPaidSeat으로 덮어써도 이중 판매 없음.
+       따라서 setPaidSeat으로 덮어써도 중복 판매 없음.
 ```
 
 ### Case 3: Redis paid + DB UPDATE SYNCED 중 서버 사망
 
 ```
 상태: Redis에 paid:{token} (영구) + DB에 PAID 레코드
-위험: DB만 PAID이지만 좌석은 이미 확보됨 → 이중 판매 없음
+위험: DB만 PAID이지만 좌석은 이미 확보됨 → 중복 판매 없음
 해결: 동기화 워커가 setPaidSeat 재실행 → 이미 paid이므로 동일한 결과 → DB SYNCED
 ```
 
 ### 왜 이 전략이 안전한가?
 
-| 장애 시점 | Redis 상태 | DB 상태 | 이중 판매? | 자동 복구? |
+| 장애 시점 | Redis 상태 | DB 상태 | 중복 판매? | 자동 복구? |
 |-----------|-----------|---------|-----------|-----------|
 | 2단계 이후 | held (TTL) | 없음 | 불가능 (즉시 롤백 또는 TTL 만료) | TTL 자동 해제 |
 | 3단계 이후 | held (TTL) | PAID | 불가능 (UNIQUE 제약) | 동기화 워커 |
@@ -201,13 +288,31 @@ SyncScheduler (매 1분)
 
 **핵심 불변식**:
 - `동기화 워커 주기(1분) < hold TTL(5분)` → TTL 만료 전 동기화 완료
-- `seatNumber UNIQUE 제약` → TTL 만료 후 다른 사용자가 hold해도 DB 저장 실패 → 이중 판매 원천 차단
+- `seatNumber UNIQUE 제약` → 동기화 워커가 실패하더라도, 같은 좌석 번호로 두 번째 INSERT가 시도되면 DB가 UNIQUE 위반으로 거부합니다. 즉, 애플리케이션 로직과 무관하게 DB 레벨에서 중복 판매를 원천 차단합니다.
+
+> **시나리오**: 사용자 A가 좌석 7을 구매 완료(DB PAID) → 서버 장애로 Redis paid 전환 실패 → held TTL 만료 → 사용자 B가 좌석 7을 hold 성공 → B의 DB INSERT 시 `seat_number UNIQUE` 위반 → B의 구매 실패 → 동기화 워커가 A의 paid를 Redis에 복원
 
 ---
 
 ## 설계 결정과 트레이드오프
 
 ### 1. 아키텍처: 헥사고날 vs 레이어드
+
+#### 레이어드 아키텍처의 문제
+
+전통적인 레이어드 아키텍처는 `Controller → Service → Repository`로 구성됩니다. 레이어 간 경계가 인터페이스 없이 구체 클래스로 직접 연결되어 있습니다.
+
+```
+Controller → Service (구체 클래스) → Repository (구체 클래스)
+                ↓                        ↓
+           @Entity 도메인             JPA 직접 의존
+```
+
+이 구조에서는 다음과 같은 문제가 발생합니다:
+
+- **도메인이 인프라에 오염**: `Ticket.java`에 `@Entity`, `@Column` 같은 JPA 어노테이션이 직접 붙습니다. 도메인 객체가 JPA에 종속되어, DB를 교체하면 도메인 코드까지 수정해야 합니다.
+- **테스트 시 인프라 의존**: Service가 Repository 구체 클래스에 직접 의존하므로, 단위 테스트에서 Redis/MySQL 없이 로직만 테스트하기 어렵습니다.
+- **의존성 방향이 아래로만 흐름**: `Controller → Service → Repository → DB`. 상위 레이어가 하위 레이어의 구현을 알게 됩니다.
 
 #### 선택: 헥사고날 아키텍처 (Ports and Adapters) + 도메인 단위 패키지
 
@@ -221,15 +326,50 @@ ticket/          → 티켓 도메인 (domain + application + adapter)
   adapter/       → Controller, Scheduler, Redis/JPA Adapter
 ```
 
+헥사고날 아키텍처는 **DIP(의존성 역전 원칙)**와 **객체 변환**을 통해 레이어드의 문제를 해결합니다.
+
+**1) Port 인터페이스로 의존성 역전**
+
+Service가 Repository 구체 클래스에 직접 의존하는 대신, application 패키지에 Port 인터페이스를 정의하고 adapter가 이를 구현합니다. 의존성 방향이 역전되어 인프라(adapter)가 도메인(application)에 의존하게 됩니다.
+
+```
+레이어드:    Controller → Service → Repository (구체)     의존성: 위 → 아래
+헥사고날:    Controller → UseCase(Port) ← Service → Port(인터페이스) ← Adapter
+             adapter/in    port/in      application     port/out       adapter/out
+```
+
+**2) Adapter에서 JPA Entity ↔ 도메인 객체 변환**
+
+레이어드에서는 `@Entity`가 붙은 JPA 엔티티를 Service까지 그대로 올려보냅니다. 도메인 객체 자체가 JPA에 종속됩니다. 헥사고날에서는 Adapter가 경계에서 JPA 엔티티를 도메인 객체로 변환하여 반환합니다. Port 인터페이스의 반환 타입이 도메인 객체(`Ticket`)이므로, 도메인은 JPA의 존재를 알 수 없습니다.
+
+```
+레이어드:    Repository → TicketEntity(@Entity) → Service → Controller
+             JPA 엔티티가 도메인까지 그대로 노출
+
+헥사고날:    TicketJpaAdapter → TicketJpaEntity(@Entity) → toDomain() → Ticket(순수 Java)
+             Adapter 내부에서 변환, Port 밖으로는 도메인 객체만 나감
+```
+
+```java
+// TicketJpaAdapter.java - Port 구현체
+public Ticket save(Ticket ticket) {
+    TicketJpaEntity entity = TicketJpaEntity.fromDomain(ticket);  // 도메인 → JPA
+    return repository.save(entity).toDomain();                     // JPA → 도메인
+}
+```
+
+이 두 가지 메커니즘(DIP + 객체 변환)으로 레이어드의 세 가지 문제를 해결합니다:
+
 **채택 이유**:
-- **도메인 순수성**: `Ticket.java`에 `@Entity`, `@Column` 같은 JPA 어노테이션이 없습니다. 도메인 로직이 인프라 기술에 오염되지 않으므로, Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
-- **테스트 용이성**: `TicketService`는 `SeatHoldPort`와 `TicketPersistencePort` 인터페이스에만 의존합니다. 단위 테스트에서 이 포트를 Mock으로 교체하면 Redis/MySQL 없이도 구매 로직 5단계를 완벽히 테스트할 수 있습니다.
-- **의존성 방향 제어**: 모든 의존성이 domain을 향합니다 (`adapter → application → domain`). domain은 어디에도 의존하지 않습니다.
+- **도메인 순수성**: Port 인터페이스가 경계를, Adapter의 객체 변환이 분리를 만듭니다. `Ticket.java`에 `@Entity` 같은 JPA 어노테이션이 없습니다. Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
+- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPersistencePort`만 Mock하면 Redis/MySQL 없이도 구매 로직 5단계를 완벽히 테스트할 수 있습니다.
+- **의존성 방향 제어**: DIP에 의해 모든 의존성이 domain을 향합니다 (`adapter → application → domain`). domain은 어디에도 의존하지 않습니다.
+- **경계의 명시성**: `port/in`, `port/out`, `adapter/in`, `adapter/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
 
 **트레이드오프**:
 - **파일 수 증가**: `SeatHoldPort`(인터페이스) + `SeatHoldRedisAdapter`(구현)처럼 인터페이스-구현 쌍이 반드시 필요합니다. 레이어드라면 `SeatHoldService` 하나로 끝납니다.
 - **간접 참조 비용**: Controller → UseCase 인터페이스 → Service → Port 인터페이스 → Adapter. 호출 체인이 길어져 코드를 따라가기 어려울 수 있습니다.
-- **JPA 엔티티 분리로 인한 매핑 코드**: `TicketJpaEntity.fromDomain()`과 `toDomain()` 같은 변환 코드가 추가됩니다.
+- **매핑 코드 추가**: Adapter마다 `fromDomain()`과 `toDomain()` 변환 코드가 필요합니다. 레이어드에서는 `@Entity` 객체를 그대로 사용하므로 이 코드가 없습니다.
 
 ---
 
@@ -243,7 +383,9 @@ ticket/          → 티켓 도메인 (domain + application + adapter)
 - **인프라 단순성**: 이미 좌석 선점용으로 Redis를 사용하므로, 별도 인프라를 추가하지 않습니다.
 
 **트레이드오프**:
-- **메모리 한계**: 1,000만 명이면 멤버당 ~100bytes, 총 ~1GB. 1억 명이면 Redis Cluster 필요.
+- **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 20초 폴링 = ~50만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
+  - **폴링 주기 늘리기**: 20초 → 60초로 변경하면 ~50만 → ~17만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장 알림이 최대 60초까지 지연됩니다.
+  - **Redis Cluster 샤딩**: 처리량 자체를 수평 확장. 폴링 주기를 유지하면서 대규모 대기열을 처리할 수 있지만, 인프라 복잡도가 증가합니다.
 - **영속성 부재**: Redis 장애 시 대기열 유실. 다만 선착순 대기열은 일시적 데이터이므로 재진입이 합리적.
 - **순서 보장 범위**: `System.currentTimeMillis()` 기반 score는 밀리초 내 동시 요청 시 순서가 불확실하지만, 밀리초 내 차이는 공정성 기준에서 무시 가능.
 
@@ -259,31 +401,27 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 ```
 
 **채택 이유**:
-- **본질에 집중**: 이 프로젝트의 핵심은 대용량 동시 접속 환경에서의 선착순 티켓 구매 시스템입니다. 다중 좌석 선택은 부가 기능이지 핵심 도메인이 아닙니다. 대기열 관리, Redis-DB 동기화, 이중 판매 방지 등 핵심 문제에 집중하기 위해 부가적인 기능을 최소화했습니다.
-
-**트레이드오프**:
-- **다중 좌석 UX 불가**: 가족석 4장을 한 번에 선택하는 UX가 불가능합니다. 하지만 여러 좌석이 필요하면 여러 번 구매하면 되고, 각 호출이 독립적이므로 병렬 처리도 가능합니다.
+- **본질에 집중**: 이 프로젝트의 핵심은 대용량 동시 접속 환경에서의 선착순 티켓 구매 시스템입니다. 다중 좌석 선택은 부가 기능이지 핵심 도메인이 아닙니다. 대기열 관리, Redis-DB 동기화, 중복 판매 방지 등 핵심 문제에 집중하기 위해 의도적으로 제외했습니다.
 
 ---
 
-### 4. 좌석 선점: setIfAbsent vs Lua Script
+### 4. 좌석 Redis 연산: 선점(hold)과 결제 확정(pay)
 
-#### 선택: Redis `SET NX EX` (Spring `setIfAbsent`) — 단일 좌석 선점
+좌석 상태를 변경하는 Redis 연산은 두 가지인데, 각각 요구사항이 달라 다른 방식을 사용합니다.
+
+#### 선점 (hold): `SET NX EX`
+
+"키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
 
 ```java
-// SeatHoldRedisAdapter.java - holdSeat
+// SeatHoldRedisAdapter.java
 Boolean success = redisTemplate.opsForValue()
         .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
 ```
 
-**채택 이유**:
-- **1티켓-1좌석이므로 Lua 불필요**: 단일 키에 대한 `SET NX EX`는 Redis가 원자적으로 보장합니다. 다중 좌석의 all-or-nothing을 보장하려면 Lua가 필요하지만, 단일 좌석이면 네이티브 명령으로 충분합니다.
-- **구현 단순성**: 별도 `.lua` 파일과 `DefaultRedisScript` 빈 없이 Spring Data Redis API만으로 완성됩니다.
-- **디버깅 용이성**: Lua 스크립트는 Redis 서버 내부에서 실행되어 Java 스택 트레이스로 추적이 어렵습니다. 네이티브 명령은 일반적인 Redis 에러로 처리됩니다.
+#### 결제 확정 (pay): Lua Script
 
-**Lua Script는 어디에 사용하나?**
-
-`pay-seat.lua`는 held→paid 전환에만 사용합니다. "현재 값이 정확히 `held:{token}`인 경우에만 `paid:{token}`으로 교체"라는 check-and-set은 단일 명령으로 불가능하기 때문입니다.
+"현재 값이 정확히 `held:{token}`인 경우에만 `paid:{token}`으로 교체"라는 CAS(Compare-And-Swap)가 필요합니다. GET과 SET 사이에 다른 클라이언트가 끼어들 수 있으므로, 두 연산을 원자적으로 묶는 Lua Script를 사용합니다.
 
 ```lua
 -- pay-seat.lua: held → paid 원자적 전환
@@ -293,38 +431,9 @@ redis.call('SET', KEYS[1], ARGV[2])         -- SET이 기존 TTL 자동 제거
 return 0
 ```
 
-**트레이드오프**:
-- **Redis Cluster 호환**: 단일 키 연산이므로 Hash Tag 없이도 Cluster에서 동작합니다.
-- **Lua 스크립트 1개 유지**: 선점(hold)은 네이티브, 결제 확정(pay)은 Lua. 두 가지 방식이 혼재하지만, 각각의 요구사항에 맞는 최적 선택입니다.
-
 ---
 
-### 5. 상태 전이: 2-Phase (held → paid) + 동기화 워커
-
-#### 선택: 2-Phase 상태 전이 + TTL 안전망 + DB UNIQUE 제약
-
-```
-① Redis SET seat:7 "held:{token}" NX EX 300    ← 임시 선점, TTL 5분
-② DB INSERT ticket (status=PAID)                ← 결제 완료 기록
-③ Redis SET seat:7 "paid:{token}"               ← 영구 확정 (SET이 TTL 자동 제거)
-④ DB UPDATE ticket SET status=SYNCED            ← 동기화 완료
-```
-
-**채택 이유**:
-- **장애 안전성**: ①~② 사이에 서버가 죽으면 DB 레코드가 없으므로 TTL 만료로 자동 롤백. ②~③ 사이에 죽으면 동기화 워커가 처리. 어떤 지점에서 죽어도 이중 판매가 불가능합니다.
-- **TTL이 Safety Net**: held 상태에 TTL을 설정하면, 최악의 경우에도 5분 뒤 좌석이 자동으로 풀립니다.
-- **DB UNIQUE가 최종 방어선**: TTL 만료 후 다른 사용자가 같은 좌석을 hold할 수 있지만, DB `seatNumber UNIQUE` 제약이 INSERT를 거부합니다. Redis TTL + DB UNIQUE의 이중 방어입니다.
-
-**트레이드오프**:
-- **구현 복잡도**: 5단계 오케스트레이션 + 동기화 워커가 필요합니다.
-- **일시적 불일치 허용**: ②~④ 사이에 DB는 PAID인데 Redis는 held입니다. 이 간극에 좌석 현황 조회 시 "held"로 표시되지만, 실용적 문제는 없습니다.
-- **동기화 워커 의존성**: 현재 워커는 `@Scheduled`로 앱과 같은 JVM에서 실행되므로 앱이 살아있으면 워커도 동작합니다. 별도 프로세스로 분리할 경우 워커 헬스체크가 필요합니다.
-- **덮어쓰기 정책**: 동기화 워커의 `setPaidSeat`은 기존 Redis 값을 무조건 덮어씁니다. TTL 만료 후 다른 사용자가 hold한 키를 덮어쓸 수 있지만, 그 사용자는 어차피 DB UNIQUE 때문에 결제를 완료할 수 없으므로 문제없습니다.
-- **최대 1분 지연**: 동기화 워커가 1분 주기이므로, 장애 발생 후 최대 ~1분간 PAID 상태가 유지됩니다. 사용자는 이미 구매 완료 응답을 받았으므로 체감 영향은 없습니다.
-
----
-
-### 6. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
+### 5. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
 
 #### 선택: 도메인 엔티티에서 상태 전이 후 save
 
@@ -358,7 +467,7 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 7. DB 이중 판매 방어: seatNumber UNIQUE 제약
+### 6. DB 중복 판매 방어: seatNumber UNIQUE 제약
 
 #### 선택: `tickets.seat_number` 컬럼에 UNIQUE 제약
 
@@ -368,35 +477,42 @@ public Ticket save(Ticket ticket) {
 private int seatNumber;
 ```
 
-**채택 이유**:
-- **DB 레벨 최종 방어선**: Redis TTL 만료 후 동기화 워커가 실행되기 전, 다른 사용자가 같은 좌석을 hold하고 DB INSERT를 시도하면 UNIQUE 위반으로 실패합니다. Redis의 TTL만으로는 방어할 수 없는 시간 갭을 DB가 막아줍니다.
-- **데이터 정합성 보장**: 같은 좌석에 대해 두 개의 티켓이 DB에 존재하는 것이 물리적으로 불가능합니다. 애플리케이션 로직에 버그가 있어도 DB가 이중 판매를 차단합니다.
+**UNIQUE가 없으면 어떤 일이 벌어지는가?**
 
-**트레이드오프**:
-- **공연별 좌석 관리 불가**: 현재 단일 공연을 가정하므로 `seatNumber` UNIQUE만으로 충분합니다. 다중 공연이면 `(eventId, seatNumber)` 복합 UNIQUE가 필요합니다.
-- **UNIQUE 위반 시 예외 처리**: DB에서 `DataIntegrityViolationException`이 발생하면 catch해서 적절한 에러 응답을 반환해야 합니다.
+```
+1. 사용자 A: 좌석 7 hold 성공     → Redis: held:A (TTL 5분)
+2. 사용자 A: DB INSERT 성공        → DB: seat_number=7, PAID (= 결제 완료)
+3. 서버 장애 → Redis paid 전환 실패
+4. held:A TTL 만료                 → Redis: (키 없음)
+5. 사용자 B: 좌석 7 hold 성공      → Redis: held:B (TTL 5분)  ← 키가 없으니 성공
+6. 사용자 B: DB INSERT             → UNIQUE 없으면 성공 → 좌석 7이 A, B 둘 다에게 판매됨
+```
+
+**UNIQUE가 있으면?**
+
+6단계에서 `seat_number UNIQUE` 위반으로 B의 INSERT가 실패합니다. Redis TTL 만료 ~ 동기화 워커 실행 사이의 시간 갭에서 다른 사용자가 같은 좌석을 hold할 수 있지만, DB가 최종 방어선으로 중복 판매를 차단합니다. 이후 동기화 워커가 A의 `paid:{token}`을 Redis에 복원합니다.
 
 ---
 
-### 8. 대기열 입장: 유령 제거 → peek → activate → remove
+### 7. 대기열 입장: 잠수 제거 → peek → activate → remove
 
 #### 잠수 유저 제거 (Sorted Set 기반)
 
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(유령 유저)를 자동으로 제거한다.
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다.
 
 ```
 waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
-waiting_queue_heartbeat (score = 마지막 폴링 시각) → 유령 감지 및 제거용
+waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 제거용
 ```
 
 **동작 흐름**:
 
 | 시점 | waiting_queue | waiting_queue_heartbeat |
 |------|--------------|------------------------|
-| 진입 (`enter`) | ZADD {진입시각} | ZADD {진입시각} |
-| 폴링 (`getStatus`) | 안 건드림 | ZADD {현재시각} |
-| 유령 제거 (`admitBatch`) | ZREM | ZREMRANGEBYSCORE |
-| 입장 (`admitBatch`) | ZREM | ZREM |
+| 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
+| 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
+| 잠수 제거 (`AdmissionScheduler.admit()`) | ZREM | ZREMRANGEBYSCORE |
+| 입장 (`AdmissionScheduler.admit()`) | ZREM | ZREM |
 
 **왜 Sorted Set 2개?**
 - `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
@@ -409,8 +525,8 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 유령 감지 및 
 |------|------|--------|------|
 | 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
 | 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 2초마다 |
-| 유령 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
-| 유령 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
+| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
+| 잠수 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
 | rank 조회 | ZRANK | O(log N) | 유저당 2초마다 |
 
 100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 2초마다 1회이므로, 대기자 10만 명이면 ~5만 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
@@ -423,7 +539,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 유령 감지 및 
 
 ```java
 // QueueService.java
-// 0. 유령 유저 제거 (queue-ttl-seconds 동안 폴링 없는 유저)
+// 0. 잠수 유저 제거 (queue-ttl-seconds 동안 폴링 없는 유저)
 waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
 // 1~3. 입장 처리
@@ -452,46 +568,23 @@ waitingQueuePort.removeBatch(candidates);                         // 3. 큐에�
 
 ---
 
-### 9. 클라이언트 통신: 폴링 vs WebSocket vs SSE
+### 8. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
-#### 선택: 2초 주기 HTTP 폴링
+#### 선택: 20초 주기 HTTP 폴링
 
-**채택 이유**:
-- **인프라 단순성**: 별도 WebSocket 서버나 SSE 설정 없이 기존 REST API만으로 동작합니다.
-- **로드밸런서 호환**: HTTP 요청은 어떤 로드밸런서/CDN과도 호환됩니다.
-- **연결 비용 분산**: 수십만 명이 폴링해도 각 요청은 독립적이며, 커넥션 풀에서 즉시 반환됩니다.
+**WebSocket / SSE를 사용하지 않는 이유**:
+- **WebSocket**: 서버가 각 클라이언트와 상시 TCP 연결을 유지해야 합니다. 대기자 50만 명이면 50만 개의 커넥션이 동시에 열려있어야 하고, 로드밸런서에서 같은 클라이언트를 같은 서버로 라우팅하는 sticky session 설정이 필요합니다.
+- **SSE(Server-Sent Events)**: WebSocket보다 단순하지만 마찬가지로 서버가 HTTP 연결을 끊지 않고 유지합니다. 대규모 동시 접속에서 커넥션 수 문제는 동일합니다.
+
+**폴링 채택 이유**:
+- **연결을 유지하지 않음**: 요청-응답 후 즉시 커넥션이 반환됩니다. 50만 명이 대기해도 동시 커넥션 수는 폴링 주기에 비례한 일부분만 차지합니다.
+- **인프라 단순성**: 일반 REST API이므로 별도 설정 없이 모든 로드밸런서/CDN과 호환됩니다.
 
 **트레이드오프**:
-- **불필요한 요청**: 순번 변화가 없어도 2초마다 요청을 보냅니다. 대기자 50만 명 × 0.5 req/s = 25만 req/s.
-- **최대 2초 지연**: 입장이 허용된 직후부터 최대 2초 후에야 클라이언트가 인지합니다.
+- **불필요한 요청**: 순번 변화가 없어도 20초마다 요청을 보냅니다. 대기자 50만 명 × 0.05 req/s = ~2.5만 req/s.
+- **최대 20초 지연**: 입장이 허용된 직후부터 최대 20초 후에야 클라이언트가 인지합니다.
 
 ---
-
-### 10. 스케줄러: Spring @Scheduled (단일 JVM)
-
-#### 선택: Spring @Scheduled + 속성 기반 설정 (풀 사이즈 2)
-
-```yaml
-# application.yml
-spring:
-  task:
-    scheduling:
-      pool:
-        size: 2                          # AdmissionScheduler + SyncScheduler
-      thread-name-prefix: "zticket-scheduler-"
-      shutdown:
-        await-termination: true
-        await-termination-period: 5s
-```
-
-별도 `SchedulerConfig` 클래스 없이 Spring Boot의 자동 구성(`spring.task.scheduling`)을 사용합니다. `@EnableScheduling`은 `ZticketApplication`에 선언되어 있습니다.
-
-**채택 이유**:
-- 대용량 트래픽 처리라는 핵심 도메인에 집중하기 위해 스케줄러는 가장 단순한 방식으로 구성했습니다. 별도 인프라 없이 Spring `@Scheduled`만으로 동작합니다.
-- `await-termination`을 활성화하여 셧다운 시 실행 중인 스케줄러가 안전하게 완료될 수 있도록 합니다.
-
-**프로덕션 고려사항**:
-- 서버 이중화 시 ShedLock 등의 분산 스케줄러 도입이 필요합니다. 현재 구조에서는 서버를 여러 대로 스케일아웃하면 스케줄러가 인스턴스 수만큼 중복 실행됩니다.
 
 ---
 
@@ -511,7 +604,7 @@ kr.jemi.zticket
 │   │   ├── port/
 │   │   │   ├── in/
 │   │   │   │   ├── EnterQueueUseCase.java
-│   │   │   │   ├── GetQueueStatusUseCase.java
+│   │   │   │   ├── GetQueueTokenUseCase.java
 │   │   │   │   └── AdmitUsersUseCase.java
 │   │   │   └── out/
 │   │   │       ├── WaitingQueuePort.java
@@ -525,7 +618,7 @@ kr.jemi.zticket
 │       │   │       ├── TokenResponse.java
 │       │   │       └── QueueStatusResponse.java
 │       │   └── scheduler/
-│       │       └── AdmissionScheduler.java     1초 배치 입장
+│       │       └── AdmissionScheduler.java     20초 배치 입장
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java
@@ -641,7 +734,7 @@ src/main/resources/templates/
 | Key Pattern | Type | 값 예시 | TTL | 용도 |
 |-------------|------|---------|-----|------|
 | `waiting_queue` | Sorted Set | member=UUID, score=진입시각 | 없음 | FIFO 대기열 (rank 조회) |
-| `waiting_queue_heartbeat` | Sorted Set | member=UUID, score=마지막 폴링시각 | 없음 | 유령 유저 감지 (ZREMRANGEBYSCORE) |
+| `waiting_queue_heartbeat` | Sorted Set | member=UUID, score=마지막 폴링시각 | 없음 | 잠수 유저 감지 (ZREMRANGEBYSCORE) |
 | `active_user:{uuid}` | String | `"1"` | 300초 | 입장 허용 상태 |
 | `seat:{seatNumber}` | String | `"held:{token}"` | 300초 | 좌석 임시 선점 |
 | `seat:{seatNumber}` | String | `"paid:{token}"` | 없음 (SET 자동 제거) | 좌석 결제 확정 |
@@ -653,11 +746,11 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    batch-size: 200         # 1초마다 최대 입장 인원 수
-    interval-ms: 1000       # 입장 스케줄러 실행 주기
+    batch-size: 200         # 20초마다 최대 입장 인원 수
+    interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 200   # 동시 active 유저 상한
-    queue-ttl-seconds: 180  # 대기열 유령 제거 기준 (3분간 폴링 없으면 제거)
+    queue-ttl-seconds: 180  # 대기열 잠수 제거 기준 (3분간 폴링 없으면 제거)
   seat:
     total-count: 50         # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
@@ -667,23 +760,21 @@ zticket:
 
 **핵심 제약**:
 - `active-ttl-seconds(300초)` = `hold-ttl-seconds(300초)`: active 유저의 세션 시간과 좌석 선점 시간이 동일해야 합니다. active가 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있고, hold가 먼저 만료되면 구매 중 좌석이 풀립니다.
-- `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 이중 판매를 차단합니다.
+- `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
 
 ---
 
 ## 부하 테스트 (k6)
 
-[k6](https://grafana.com/docs/k6/)를 사용하여 대기열 진입부터 티켓 구매까지의 전체 플로우를 부하 테스트합니다.
-
-### 설치
+[k6](https://grafana.com/docs/k6/)를 사용하여 부하 테스트합니다. 두 가지 시나리오를 제공합니다.
 
 ```bash
 brew install k6
 ```
 
-### 시나리오
+### 1. 전체 플로우 (`load-test.js`)
 
-VU(가상 유저)가 동시에 티켓 구매를 시도하는 시나리오입니다 (`per-vu-iterations`, VU당 1회 실행). 각 VU는 실제 사용자와 동일한 플로우를 수행합니다.
+대기열 진입 → 폴링 → 좌석 조회 → 구매까지 실제 사용자와 동일한 플로우를 수행합니다 (`per-vu-iterations`, VU당 1회 실행).
 
 ```
 VU 동시 시작 (각 VU 1회만 실행)
@@ -698,23 +789,34 @@ VU 동시 시작 (각 VU 1회만 실행)
     └── 4. POST /api/tickets               랜덤 빈 좌석 구매
 ```
 
-### 실행
-
 ```bash
-# 서버 실행 후
 k6 run k6/load-test.js
-
-# BASE_URL 변경
-k6 run -e BASE_URL=http://localhost:8080 k6/load-test.js
 ```
 
-### 커스텀 메트릭
-
-| 메트릭 | 설명 |
-|--------|------|
+| 커스텀 메트릭 | 설명 |
+|--------------|------|
 | `purchase_success` | 구매 성공 수 |
 | `purchase_fail` | 구매 실패 수 (좌석 충돌 등) |
 | `queue_wait_time` | 대기열 진입 → ACTIVE까지 소요시간 |
+
+### 2. 대기열 진입 전용 (`queue-test.js`)
+
+대기열 진입(`POST /api/queues/tokens`)만 대량으로 호출합니다. 폴링이나 구매 없이 ZADD 처리량, 대량 진입 후 잠수 유저 제거가 정상 동작하는지 등을 확인할 수 있습니다.
+
+```
+VU 동시 시작 (각 VU 1회만 실행)
+    │
+    └── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
+```
+
+```bash
+k6 run k6/queue-test.js
+```
+
+| 커스텀 메트릭 | 설명 |
+|--------------|------|
+| `enter_success` | 대기열 진입 성공 수 |
+| `enter_fail` | 대기열 진입 실패 수 |
 
 ---
 

@@ -4,7 +4,7 @@ import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
-import kr.jemi.zticket.queue.application.port.in.GetQueueStatusUseCase;
+import kr.jemi.zticket.queue.application.port.in.GetQueueTokenUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 import kr.jemi.zticket.queue.domain.QueueToken;
@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class QueueService implements EnterQueueUseCase, GetQueueStatusUseCase, AdmitUsersUseCase {
+public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase {
 
     private final WaitingQueuePort waitingQueuePort;
     private final ActiveUserPort activeUserPort;
@@ -50,7 +50,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueStatusUseCase, A
     }
 
     @Override
-    public QueueToken getStatus(String uuid) {
+    public QueueToken getQueueToken(String uuid) {
         if (activeUserPort.isActive(uuid)) {
             return QueueToken.active(uuid);
         }

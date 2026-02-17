@@ -2,7 +2,7 @@ package kr.jemi.zticket.queue.application.port.in;
 
 import kr.jemi.zticket.queue.domain.QueueToken;
 
-public interface GetQueueStatusUseCase {
+public interface GetQueueTokenUseCase {
 
-    QueueToken getStatus(String uuid);
+    QueueToken getQueueToken(String uuid);
 }

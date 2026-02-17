@@ -97,8 +97,8 @@ class QueueServiceTest {
     }
 
     @Nested
-    @DisplayName("getStatus() - 상태 조회")
-    class GetStatus {
+    @DisplayName("getQueueToken() - 대기열 토큰 조회")
+    class GetQueueToken {
 
         @Test
         @DisplayName("active 유저는 ACTIVE 상태를 반환한다")
@@ -107,7 +107,7 @@ class QueueServiceTest {
             given(activeUserPort.isActive("uuid-1")).willReturn(true);
 
             // when
-            QueueToken token = queueService.getStatus("uuid-1");
+            QueueToken token = queueService.getQueueToken("uuid-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.ACTIVE);
@@ -123,7 +123,7 @@ class QueueServiceTest {
             given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
 
             // when
-            QueueToken token = queueService.getStatus("uuid-1");
+            QueueToken token = queueService.getQueueToken("uuid-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.WAITING);
@@ -139,7 +139,7 @@ class QueueServiceTest {
             given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
 
             // when
-            queueService.getStatus("uuid-1");
+            queueService.getQueueToken("uuid-1");
 
             // then
             then(waitingQueuePort).should().refreshScore("uuid-1");
@@ -154,7 +154,7 @@ class QueueServiceTest {
             given(waitingQueuePort.getRank("uuid-1")).willReturn(null);
 
             // when & then
-            assertThatThrownBy(() -> queueService.getStatus("uuid-1"))
+            assertThatThrownBy(() -> queueService.getQueueToken("uuid-1"))
                     .isInstanceOfSatisfying(BusinessException.class, e ->
                             assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
         }
@@ -167,7 +167,7 @@ class QueueServiceTest {
             given(seatService.getAvailableCount()).willReturn(0L);
 
             // when
-            QueueToken token = queueService.getStatus("uuid-1");
+            QueueToken token = queueService.getQueueToken("uuid-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.SOLD_OUT);
@@ -180,7 +180,7 @@ class QueueServiceTest {
             given(activeUserPort.isActive("uuid-1")).willReturn(true);
 
             // when
-            queueService.getStatus("uuid-1");
+            queueService.getQueueToken("uuid-1");
 
             // then
             then(waitingQueuePort).should(never()).getRank(anyString());
