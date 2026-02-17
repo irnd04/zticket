@@ -87,17 +87,6 @@ class TicketTest {
         }
 
         @Test
-        @DisplayName("HELD 상태에서 sync() 호출 시 IllegalStateException이 발생한다")
-        void shouldThrowWhenSyncFromHeld() {
-            Ticket ticket = new Ticket(null, "uuid-1", 7, TicketStatus.HELD, "token-1",
-                    LocalDateTime.now(), null);
-
-            assertThatThrownBy(ticket::sync)
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("PAID 상태에서만 동기화");
-        }
-
-        @Test
         @DisplayName("sync()는 좌석번호와 UUID를 변경하지 않는다")
         void shouldNotChangeSeatNumberOrUuid() {
             Ticket ticket = Ticket.create("token-1", 7);

@@ -765,7 +765,7 @@ kr.jemi.zticket
 ├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
 │   ├── domain/
 │   │   ├── Ticket.java                         도메인 엔티티
-│   │   └── TicketStatus.java                   enum: HELD, PAID, SYNCED
+│   │   └── TicketStatus.java                   enum: PAID, SYNCED
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
