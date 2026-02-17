@@ -66,6 +66,11 @@ public class TicketService implements PurchaseTicketUseCase {
 
         // 5. DB 티켓 상태를 SYNCED로 변경
         ticket.sync();
-        return ticketPersistencePort.save(ticket);
+        ticket = ticketPersistencePort.save(ticket);
+
+        // 6. active 유저에서 제거 (구매 완료 → 자리 반환)
+        activeUserPort.deactivate(queueToken);
+
+        return ticket;
     }
 }

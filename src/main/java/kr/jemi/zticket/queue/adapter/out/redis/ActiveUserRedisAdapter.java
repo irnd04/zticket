@@ -26,6 +26,11 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
     }
 
     @Override
+    public void deactivate(String uuid) {
+        redisTemplate.delete(KEY_PREFIX + uuid);
+    }
+
+    @Override
     public boolean isActive(String uuid) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + uuid));
     }
