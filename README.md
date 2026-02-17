@@ -867,7 +867,7 @@ zticket:
     interval-ms: 60000      # 입장 스케줄러 실행 주기 (60초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 200   # 동시 active 유저 상한
-    queue-ttl-seconds: 180  # 대기열 잠수 제거 기준 (3분간 폴링 없으면 제거)
+    queue-ttl-seconds: 300  # 대기열 잠수 제거 기준 (5분간 폴링 없으면 제거)
   seat:
     total-count: 50         # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
