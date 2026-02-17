@@ -41,7 +41,6 @@
             color: #e0e0e0;
         }
 
-        /* WAITING state */
         .waiting-section {
             display: none;
         }
@@ -166,7 +165,6 @@
             }
         }
 
-        /* ACTIVE state */
         .active-section {
             display: none;
         }
@@ -210,29 +208,28 @@
             font-size: 0.95rem;
         }
 
-        /* EXPIRED state */
-        .expired-section {
+        .soldout-section {
             display: none;
         }
 
-        .expired-section.visible {
+        .soldout-section.visible {
             display: block;
         }
 
-        .expired-icon {
+        .soldout-icon {
             font-size: 4rem;
             margin-bottom: 24px;
             opacity: 0.6;
         }
 
-        .expired-title {
+        .soldout-title {
             font-size: 1.5rem;
             font-weight: 700;
             color: #ef4444;
             margin-bottom: 12px;
         }
 
-        .expired-desc {
+        .soldout-desc {
             color: #7a75aa;
             font-size: 0.9rem;
             margin-bottom: 30px;
@@ -255,7 +252,6 @@
             background: rgba(108, 99, 255, 0.25);
         }
 
-        /* ERROR state */
         .error-section {
             display: none;
         }
@@ -288,7 +284,7 @@
     <div class="container">
         <div class="logo">Z<span>Ticket</span></div>
 
-        <!-- WAITING -->
+        <!-- 대기 -->
         <div class="waiting-section" id="waitingSection">
             <div class="spinner-ring">
                 <div class="ring"></div>
@@ -309,7 +305,7 @@
             </div>
         </div>
 
-        <!-- ACTIVE -->
+        <!-- 활성 -->
         <div class="active-section" id="activeSection">
             <div class="success-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -320,15 +316,15 @@
             <p class="active-desc">좌석 선택 페이지로 이동합니다...</p>
         </div>
 
-        <!-- SOLD OUT -->
-        <div class="expired-section" id="soldOutSection">
-            <div class="expired-icon">&#128683;</div>
-            <h2 class="expired-title">매진되었습니다</h2>
-            <p class="expired-desc">모든 좌석이 판매 완료되었습니다.</p>
+        <!-- 매진 -->
+        <div class="soldout-section" id="soldOutSection">
+            <div class="soldout-icon">&#128683;</div>
+            <h2 class="soldout-title">매진되었습니다</h2>
+            <p class="soldout-desc">모든 좌석이 판매 완료되었습니다.</p>
             <a href="/" class="back-link">메인으로 돌아가기</a>
         </div>
 
-        <!-- ERROR -->
+        <!-- 에러 -->
         <div class="error-section" id="errorSection">
             <div class="error-message" id="errorMessage">오류가 발생했습니다.</div>
             <a href="/" class="back-link">메인으로 돌아가기</a>
@@ -389,7 +385,7 @@
                     var rank = data.rank || '-';
                     document.getElementById('queueRank').innerHTML = rank + '<span>번</span>';
 
-                    // Animate progress bar based on rank (lower rank = more progress)
+                    // 순번 기반 프로그레스 바 (순번 낮을수록 진행률 높음)
                     var progressPercent = Math.max(10, Math.min(90, 100 - (rank * 0.5)));
                     document.getElementById('progressBar').style.width = progressPercent + '%';
 

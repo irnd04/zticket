@@ -357,18 +357,18 @@
         }
 
         function init() {
-            // Get ticket UUID from query param or sessionStorage
+            // 쿼리 파라미터 또는 sessionStorage에서 티켓 UUID 조회
             var ticketUuid = getQueryParam('ticketUuid') || sessionStorage.getItem('ticketUuid') || '-';
             document.getElementById('ticketUuid').textContent = ticketUuid;
 
-            // Get purchased seat from sessionStorage
+            // sessionStorage에서 구매한 좌석 조회
             var seat = sessionStorage.getItem('purchasedSeat');
             document.getElementById('seatInfo').textContent = seat ? seat + '번' : '-';
 
-            // Set purchase date
+            // 구매 일시 설정
             document.getElementById('purchaseDate').textContent = formatDate(new Date());
 
-            // Confetti effect
+            // 축하 효과
             createConfetti();
         }
 

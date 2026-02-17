@@ -64,7 +64,6 @@
             margin-bottom: 24px;
         }
 
-        /* Legend */
         .legend {
             display: flex;
             gap: 20px;
@@ -103,7 +102,6 @@
             background: #ef4444;
         }
 
-        /* Stage */
         .stage {
             background: linear-gradient(180deg, rgba(108, 99, 255, 0.15) 0%, rgba(108, 99, 255, 0.03) 100%);
             border: 1px solid rgba(108, 99, 255, 0.25);
@@ -117,7 +115,6 @@
             margin-bottom: 40px;
         }
 
-        /* Seat map */
         .seat-map {
             display: flex;
             flex-direction: column;
@@ -191,7 +188,6 @@
             color: #1a1a2e;
         }
 
-        /* Bottom bar */
         .bottom-bar {
             position: fixed;
             bottom: 0;
@@ -246,7 +242,6 @@
             pointer-events: none;
         }
 
-        /* Loading overlay */
         .loading-overlay {
             position: fixed;
             top: 0;
@@ -284,7 +279,6 @@
             font-size: 0.95rem;
         }
 
-        /* Toast */
         .toast {
             position: fixed;
             top: 80px;
@@ -313,7 +307,6 @@
             background: rgba(34, 197, 94, 0.95);
         }
 
-        /* Column numbers */
         .col-numbers {
             display: flex;
             gap: 6px;
@@ -489,14 +482,14 @@
 
             var rows = Math.ceil(totalSeats / COLS);
 
-            // Build status map
+            // 좌석 상태 맵 생성
             seatStatusMap = {};
             for (var i = 0; i < seatStatuses.length; i++) {
                 var s = seatStatuses[i];
                 seatStatusMap[s.seatNumber] = s.status;
             }
 
-            // Column numbers header
+            // 열 번호 헤더
             var colHeader = document.createElement('div');
             colHeader.className = 'col-numbers';
             for (var c = 1; c <= COLS; c++) {
@@ -507,7 +500,7 @@
             }
             seatMap.appendChild(colHeader);
 
-            // Seat rows
+            // 좌석 행 렌더링
             for (var r = 0; r < rows; r++) {
                 var rowDiv = document.createElement('div');
                 rowDiv.className = 'seat-row';
