@@ -298,7 +298,7 @@ flowchart TD
 "키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
 
 ```java
-// SeatHoldRedisAdapter.java
+// SeatRedisAdapter.java
 Boolean success = redisTemplate.opsForValue()
         .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
 ```
@@ -452,7 +452,7 @@ public Ticket save(Ticket ticket) {
 - **경계의 명시성**: `port/in`, `port/out`, `adapter/in`, `adapter/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
 
 **트레이드오프**:
-- **파일 수 증가**: `SeatHoldPort`(인터페이스) + `SeatHoldRedisAdapter`(구현)처럼 인터페이스-구현 쌍이 반드시 필요합니다. 레이어드라면 `SeatHoldService` 하나로 끝납니다.
+- **파일 수 증가**: `SeatHoldPort`(인터페이스) + `SeatRedisAdapter`(구현)처럼 인터페이스-구현 쌍이 반드시 필요합니다. 레이어드라면 `SeatHoldService` 하나로 끝납니다.
 - **간접 참조 비용**: Controller → UseCase 인터페이스 → Service → Port 인터페이스 → Adapter. 호출 체인이 길어져 코드를 따라가기 어려울 수 있습니다.
 - **매핑 코드 추가**: Adapter마다 `fromDomain()`과 `toDomain()` 변환 코드가 필요합니다. 레이어드에서는 `@Entity` 객체를 그대로 사용하므로 이 코드가 없습니다.
 
@@ -754,7 +754,7 @@ kr.jemi.zticket
 │       │           └── AvailableCountResponse.java    잔여 좌석 수
 │       └── out/
 │           └── redis/
-│               ├── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
+│               ├── SeatRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
 │               └── RedisSeat.java             Redis 값 파싱 DTO
 │
 ├── ticket/                                     티켓 도메인 (→ queue, seat 의존)

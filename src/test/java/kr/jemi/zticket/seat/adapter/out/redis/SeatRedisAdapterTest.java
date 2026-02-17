@@ -22,7 +22,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
-class SeatHoldRedisAdapterTest {
+class SeatRedisAdapterTest {
 
     @Mock
     private StringRedisTemplate redisTemplate;
@@ -31,7 +31,7 @@ class SeatHoldRedisAdapterTest {
     private ValueOperations<String, String> valueOperations;
 
     @InjectMocks
-    private SeatHoldRedisAdapter seatHoldRedisAdapter;
+    private SeatRedisAdapter seatRedisAdapter;
 
     @Test
     @DisplayName("Redis 값에 따라 Seat을 올바르게 매핑한다")
@@ -45,7 +45,7 @@ class SeatHoldRedisAdapterTest {
         given(valueOperations.multiGet(keys)).willReturn(values);
 
         // when
-        Seats result = seatHoldRedisAdapter.getStatuses(seats);
+        Seats result = seatRedisAdapter.getStatuses(seats);
 
         // then
         assertThat(result.of(1)).isEqualTo(new Seat(SeatStatus.HELD, "token-1"));
@@ -65,7 +65,7 @@ class SeatHoldRedisAdapterTest {
         given(valueOperations.multiGet(keys)).willReturn(values);
 
         // when & then
-        assertThatThrownBy(() -> seatHoldRedisAdapter.getStatuses(seats))
+        assertThatThrownBy(() -> seatRedisAdapter.getStatuses(seats))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -80,7 +80,7 @@ class SeatHoldRedisAdapterTest {
         given(redisTemplate.expire("seat:1", 300, TimeUnit.SECONDS)).willReturn(true);
 
         // when
-        boolean result = seatHoldRedisAdapter.holdSeat(1, "token-1", 300);
+        boolean result = seatRedisAdapter.holdSeat(1, "token-1", 300);
 
         // then
         assertThat(result).isTrue();
@@ -97,7 +97,7 @@ class SeatHoldRedisAdapterTest {
         given(valueOperations.get("seat:1")).willReturn("held:token-1");
 
         // when
-        boolean result = seatHoldRedisAdapter.holdSeat(1, "token-2", 300);
+        boolean result = seatRedisAdapter.holdSeat(1, "token-2", 300);
 
         // then
         assertThat(result).isFalse();

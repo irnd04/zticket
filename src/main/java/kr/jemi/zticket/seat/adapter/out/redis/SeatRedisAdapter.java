@@ -13,13 +13,13 @@ import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.Seats;
 
 @Component
-public class SeatHoldRedisAdapter implements SeatHoldPort {
+public class SeatRedisAdapter implements SeatHoldPort {
 
     private static final String KEY_PREFIX = "seat:";
 
     private final StringRedisTemplate redisTemplate;
 
-    public SeatHoldRedisAdapter(StringRedisTemplate redisTemplate) {
+    public SeatRedisAdapter(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 
