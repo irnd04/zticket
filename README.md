@@ -58,25 +58,13 @@ open http://localhost:3000   # Grafana (admin / admin)
 
 ### 헥사고날 아키텍처 (Ports and Adapters)
 
-```
-                    ┌─────────────────────────────────┐
-   HTTP Request ──▶ │  Adapter IN (Controller/Scheduler)│
-                    └───────────┬─────────────────────┘
-                                │ UseCase 인터페이스 호출
-                                ▼
-                    ┌─────────────────────────────────┐
-                    │       Application Service         │
-                    │   (유스케이스 오케스트레이션)       │
-                    └───────────┬─────────────────────┘
-                                │ Port OUT 인터페이스 호출
-                                ▼
-                    ┌─────────────────────────────────┐
-                    │  Adapter OUT (Redis / JPA)        │
-                    └───────────┬─────────────────────┘
-                                │
-                    ┌───────────┴───────────┐
-                    ▼                       ▼
-                 Redis                   MySQL
+```mermaid
+flowchart TD
+    HTTP[HTTP Request] --> IN[Adapter IN<br/>Controller / Scheduler]
+    IN -- UseCase 인터페이스 호출 --> APP[Application Service<br/>유스케이스 오케스트레이션]
+    APP -- Port OUT 인터페이스 호출 --> OUT[Adapter OUT<br/>Redis Adapter / JPA Adapter]
+    OUT --> Redis[(Redis)]
+    OUT --> MySQL[(MySQL)]
 ```
 
 **핵심 원칙**: domain 패키지는 순수 Java로만 구성되며, Spring/JPA/Redis 등 프레임워크 의존성이 전혀 없습니다. 모든 외부 기술은 adapter 패키지에서 port 인터페이스를 구현하는 방식으로 연결됩니다.
