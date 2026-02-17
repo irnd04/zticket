@@ -36,7 +36,7 @@
     },
     {
       "id": 2,
-      "title": "HTTP Response Time (p95 / p99)",
+      "title": "HTTP Response Time (p95)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -46,9 +46,29 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"zticket\"}[1m])) by (le, method, uri))",
           "legendFormat": "p95 {{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" }
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "id": 13,
+      "title": "HTTP Response Time (p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
         {
-          "refId": "B",
+          "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"zticket\"}[1m])) by (le, method, uri))",
           "legendFormat": "p99 {{method}} {{uri}}"
@@ -70,7 +90,7 @@
       "id": 3,
       "title": "HTTP Error Rate (4xx + 5xx)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -96,7 +116,7 @@
       "id": 4,
       "title": "Tomcat Threads",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -133,7 +153,7 @@
       "id": 5,
       "title": "HikariCP Connections",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -176,7 +196,7 @@
       "id": 6,
       "title": "HikariCP Acquire Time (p95)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -208,7 +228,7 @@
       "id": 7,
       "title": "JVM Heap Memory",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -240,7 +260,7 @@
       "id": 8,
       "title": "GC Pause Time",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -266,7 +286,7 @@
       "id": 9,
       "title": "CPU Usage",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -300,7 +320,7 @@
       "id": 10,
       "title": "JVM Threads",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -331,7 +351,7 @@
       "id": 11,
       "title": "Redis Command Rate (ops/s)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -355,22 +375,42 @@
     },
     {
       "id": 12,
-      "title": "Redis Latency",
+      "title": "Redis Latency (p95)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(lettuce_seconds_sum{application=\"zticket\"}[1m]) / rate(lettuce_seconds_count{application=\"zticket\"}[1m])",
-          "legendFormat": "avg {{db_operation}}"
+          "expr": "histogram_quantile(0.95, sum(rate(lettuce_seconds_bucket{application=\"zticket\"}[1m])) by (le, db_operation))",
+          "legendFormat": "p95 {{db_operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" }
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Redis Latency (p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
         {
-          "refId": "B",
+          "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "lettuce_seconds_max{application=\"zticket\", db_operation!=\"\"}",
-          "legendFormat": "max {{db_operation}}"
+          "expr": "histogram_quantile(0.99, sum(rate(lettuce_seconds_bucket{application=\"zticket\"}[1m])) by (le, db_operation))",
+          "legendFormat": "p99 {{db_operation}}"
         }
       ],
       "fieldConfig": {

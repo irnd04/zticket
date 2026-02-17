@@ -14,12 +14,12 @@ Redis 기반 대기열과 2-Phase 상태 전이 + 동기화 워커를 통해
 4. [핵심 플로우](#핵심-플로우)
 5. [데이터 정합성](#데이터-정합성)
 6. [설계 결정](#설계-결정)
-7. [패키지 구조](#패키지-구조)
-8. [API 명세](#api-명세)
-9. [Redis 키 설계](#redis-키-설계)
-10. [설정값](#설정값)
-11. [부하 테스트 (k6)](#부하-테스트-k6)
-12. [모니터링 (Prometheus + Grafana)](#모니터링-prometheus--grafana)
+7. [부하 테스트 (k6)](#부하-테스트-k6)
+8. [모니터링 (Prometheus + Grafana)](#모니터링-prometheus--grafana)
+9. [패키지 구조](#패키지-구조)
+10. [API 명세](#api-명세)
+11. [Redis 키 설계](#redis-키-설계)
+12. [설정값](#설정값)
 
 ---
 
@@ -549,6 +549,162 @@ public Ticket save(Ticket ticket) {
 
 ---
 
+## 부하 테스트 (k6)
+
+[k6](https://grafana.com/docs/k6/)를 사용하여 부하 테스트합니다. 두 가지 시나리오를 제공합니다.
+
+```bash
+brew install k6
+```
+
+### 1. 전체 플로우 시나리오 (`full-flow.js`)
+
+대기열 진입 → 폴링 → 좌석 조회 → 구매까지 실제 사용자와 동일한 플로우를 시뮬레이션합니다 (`per-vu-iterations`, VU당 1회 실행).
+
+```
+VU 동시 시작 (각 VU 1회만 실행)
+    │
+    ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
+    │
+    ├── 2. GET /api/queues/tokens/{uuid}   60초 폴링, ACTIVE까지 대기
+    │       (반복)
+    │
+    ├── 3. GET /api/seats                  빈 좌석 조회
+    │
+    └── 4. POST /api/tickets               랜덤 빈 좌석 구매
+```
+
+```bash
+k6 run k6/full-flow.js
+```
+
+| 커스텀 메트릭 | 설명 |
+|--------------|------|
+| `purchase_success` | 구매 성공 수 |
+| `purchase_fail` | 구매 실패 수 (좌석 충돌 등) |
+| `queue_wait_time` | 대기열 진입 → ACTIVE까지 소요시간 |
+
+### 2. 스트레스 테스트 (`enter-stress.js` + `queue-stress.js`)
+
+두 스크립트를 동시에 실행하여 진입과 폴링을 동시에 부하를 줍니다.
+
+| 스크립트 | VU | 동작 | 종료 조건 |
+|---------|-----|------|----------|
+| `enter-stress.js` | 500 | `POST /api/queues/tokens` 무한 반복 | 5분 경과 |
+| `queue-stress.js` | 4,500 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 | ACTIVE/SOLD_OUT 또는 5분 경과 |
+
+```bash
+# 터미널 2개에서 동시에 실행
+k6 run k6/enter-stress.js &
+k6 run k6/queue-stress.js &
+```
+
+### 부하 테스트 결과
+
+> 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 앱 + k6 + Docker(Redis, MySQL, Prometheus, Grafana)를 동시에 실행한 환경.
+> k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
+
+**테스트 조건**: enter-stress 500 VU + queue-stress 4,500 VU (합계 5,000 VU)
+
+#### HTTP
+
+| 엔드포인트 | 처리량 | p95 | p99 | 에러율 |
+|-----------|--------|-----|-----|-------|
+| `POST /api/queues/tokens` | 1,517 req/s | 20ms | 35ms | 0% |
+| `GET /api/queues/tokens/{uuid}` | 13,659 req/s | 20ms | 34ms | 0% |
+| **합계** | **~15,200 req/s** | | | **0%** |
+
+#### Redis
+
+| 명령 | p95 | p99 | 용도 |
+|------|-----|-----|------|
+| ZADD | 3.8ms | 5.6ms | 대기열 진입 |
+| ZRANK | 3.8ms | 5.6ms | 순번 조회 |
+| EXISTS | 4.1ms | 6.0ms | active 유저 확인 |
+| MGET | 4.3ms | 5.3ms | 좌석 상태 조회 |
+| ZRANGEBYSCORE | 33ms | 34ms | 잠수 유저 탐색 |
+| ZREM | 88ms | 89ms | 잠수 유저 제거 |
+| **전체** | | | **45,571 ops/s** |
+
+#### 시스템 리소스
+
+| 지표 | 값 | 비고 |
+|------|-----|------|
+| Tomcat Threads | 200 / 200 | 포화 (병목 지점) |
+| TCP Connections | 5,003 | |
+| Process CPU | 35% | 앱 자체는 여유 |
+| System CPU | 81% | k6와 CPU 경합 |
+| JVM Heap | 492MB / 9,216MB | 여유 |
+| HikariCP | active 0, pending 0 | DB 미사용 구간 |
+
+#### 분석
+
+- **처리량**: Tomcat 200 스레드로 15,200 req/s를 처리. 스레드가 포화 상태이므로 `server.tomcat.threads.max`를 늘리면 처리량 증가 가능.
+- **응답 시간**: p99 기준 34~35ms로 양호. Redis 단일 명령은 대부분 p99 6ms 이내.
+- **에러율**: 0%. 대기열 진입과 폴링 모두 에러 없음.
+- **병목**: Tomcat 스레드 포화 + 단일 머신 CPU 경합. Redis와 DB는 여유.
+
+#### 실 서비스 환산
+
+| 지표 | 수치 | 의미 |
+|------|------|------|
+| 진입 처리 | 1,500명/초 | 1분에 9만 명 대기열 진입 가능 |
+| 폴링 수용 | 13,600 req/s | 60초 폴링 기준 **~80만 명** 동시 대기 가능 |
+| 응답 시간 | p99 35ms | 사용자 체감 없음 |
+
+단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. k6와 앱이 같은 머신에서 CPU를 경합하는 환경이므로, 분리 시 더 높은 수치가 나올 것으로 예상됩니다.
+
+---
+
+## 모니터링 (Prometheus + Grafana)
+
+Spring Boot Actuator + Micrometer로 메트릭을 수집하고, Prometheus + Grafana로 시각화합니다.
+
+### 구성
+
+```
+App (Actuator /actuator/prometheus)
+    │
+    │  10초 주기 스크래핑
+    ▼
+Prometheus (:9090)
+    │
+    │  데이터소스
+    ▼
+Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
+```
+
+`docker compose up -d` + `./gradlew bootRun` 후 [localhost:3000](http://localhost:3000)에서 `ZTicket Monitoring` 대시보드가 자동 프로비저닝되어 있습니다.
+
+### 대시보드 패널
+
+| 패널 | 확인할 수 있는 것 |
+|------|-------------------|
+| HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
+| HTTP Response Time (p95) | 응답 시간 — 체감 지연 |
+| HTTP Response Time (p99) | 꼬리 지연 (tail latency) |
+| HTTP Error Rate | 4xx/5xx 에러 비율 |
+| Tomcat Threads | busy/current/max 스레드 — 요청 처리 용량 |
+| HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
+| HikariCP Acquire Time | 커넥션 획득 대기 시간 — 풀 고갈 감지 |
+| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
+| GC Pause Time | GC 멈춤 시간 — GC로 인한 응답 지연 감지 |
+| CPU Usage | process/system CPU 사용률 |
+| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
+| Redis Command Rate | Redis 명령 초당 처리량 (ops/s) |
+| Redis Latency (p95) | Redis 명령 응답 시간 — 체감 지연 |
+| Redis Latency (p99) | Redis 꼬리 지연 |
+
+### Actuator 엔드포인트
+
+| Path | 설명 |
+|------|------|
+| `/actuator/prometheus` | Prometheus 포맷 메트릭 |
+| `/actuator/health` | 앱 + DB + Redis 헬스체크 |
+| `/actuator/metrics` | 전체 메트릭 목록 |
+
+---
+
 ## 패키지 구조
 
 도메인(queue, seat, ticket)이 최상위 패키지가 되고, 각 도메인 안에 레이어(domain, application, adapter)가 배치되는 구조입니다.
@@ -723,125 +879,4 @@ zticket:
 - `active-ttl-seconds(300초)` = `hold-ttl-seconds(300초)`: active 유저의 세션 시간과 좌석 선점 시간이 동일해야 합니다. active가 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있고, hold가 먼저 만료되면 구매 중 좌석이 풀립니다.
 - `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
 
----
 
-## 부하 테스트 (k6)
-
-[k6](https://grafana.com/docs/k6/)를 사용하여 부하 테스트합니다. 두 가지 시나리오를 제공합니다.
-
-```bash
-brew install k6
-```
-
-### 1. 전체 플로우 (`load-test.js`)
-
-대기열 진입 → 폴링 → 좌석 조회 → 구매까지 실제 사용자와 동일한 플로우를 수행합니다 (`per-vu-iterations`, VU당 1회 실행).
-
-```
-VU 동시 시작 (각 VU 1회만 실행)
-    │
-    ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
-    │
-    ├── 2. GET /api/queues/tokens/{uuid}   60초 폴링, ACTIVE까지 대기
-    │       (반복)
-    │
-    ├── 3. GET /api/seats                  빈 좌석 조회
-    │
-    └── 4. POST /api/tickets               랜덤 빈 좌석 구매
-```
-
-```bash
-k6 run k6/load-test.js
-```
-
-| 커스텀 메트릭 | 설명 |
-|--------------|------|
-| `purchase_success` | 구매 성공 수 |
-| `purchase_fail` | 구매 실패 수 (좌석 충돌 등) |
-| `queue_wait_time` | 대기열 진입 → ACTIVE까지 소요시간 |
-
-### 2. 대기열 진입 전용 (`queue-test.js`)
-
-대기열 진입(`POST /api/queues/tokens`)만 대량으로 호출합니다. 폴링이나 구매 없이 ZADD 처리량, 대량 진입 후 잠수 유저 제거가 정상 동작하는지 등을 확인할 수 있습니다.
-
-```
-VU 동시 시작 (각 VU 1회만 실행)
-    │
-    └── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
-```
-
-```bash
-k6 run k6/queue-test.js
-```
-
-| 커스텀 메트릭 | 설명 |
-|--------------|------|
-| `enter_success` | 대기열 진입 성공 수 |
-| `enter_fail` | 대기열 진입 실패 수 |
-
----
-
-## 모니터링 (Prometheus + Grafana)
-
-Spring Boot Actuator + Micrometer로 메트릭을 수집하고, Prometheus + Grafana로 시각화합니다.
-
-### 구성
-
-```
-App (Actuator /actuator/prometheus)
-    │
-    │  10초 주기 스크래핑
-    ▼
-Prometheus (:9090)
-    │
-    │  데이터소스
-    ▼
-Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
-```
-
-`docker compose up -d` + `./gradlew bootRun` 후 [localhost:3000](http://localhost:3000)에서 `ZTicket Monitoring` 대시보드가 자동 프로비저닝되어 있습니다.
-
-### 대시보드 패널
-
-| 패널 | 확인할 수 있는 것 |
-|------|-------------------|
-| HTTP Request Rate | 초당 요청 수 (엔드포인트별) |
-| HTTP Response Time (p95/p99) | 응답 시간 분포 — 체감 지연 및 꼬리 지연 |
-| HTTP Error Rate | 4xx/5xx 에러 비율 |
-| Tomcat Threads | busy/current/max 스레드 — 요청 처리 용량 |
-| HikariCP Connections | DB 커넥션풀 (active/idle/pending) — DB 병목 감지 |
-| HikariCP Acquire Time | 커넥션 획득 대기 시간 — 풀 고갈 감지 |
-| JVM Heap Memory | 힙 메모리 사용량 — OOM 징후 감지 |
-| GC Pause Time | GC 멈춤 시간 — GC로 인한 응답 지연 감지 |
-| CPU Usage | process/system CPU 사용률 |
-| JVM Threads | 라이브/피크 스레드 수 — 스레드 고갈 감지 |
-| Redis Command Rate | Redis 명령 초당 처리량 (ops/s) |
-| Redis Latency | Redis 명령 avg/max 응답 시간 |
-
-### Actuator 엔드포인트
-
-| Path | 설명 |
-|------|------|
-| `/actuator/prometheus` | Prometheus 포맷 메트릭 |
-| `/actuator/health` | 앱 + DB + Redis 헬스체크 |
-| `/actuator/metrics` | 전체 메트릭 목록 |
-
-### 부하 테스트 중 확인 포인트
-
-```bash
-# 부하 테스트 실행 (앱이 실행 중인 상태에서)
-k6 run k6/load-test.js
-
-# Grafana에서 실시간 병목 확인
-open http://localhost:3000
-```
-
-| 증상 | 대시보드에서 보이는 것 | 원인 |
-|------|----------------------|------|
-| 응답 느림 | p95/p99 급등 | Redis/DB 병목 또는 GC |
-| 에러 급증 | Error Rate 상승 | 커넥션풀 고갈, 타임아웃 |
-| 메모리 부족 | Heap 사용량 max 근접 | JVM 힙 부족, GC 빈번 |
-| DB 병목 | HikariCP pending 증가, Acquire Time 급등 | 커넥션풀 사이즈 부족 |
-| 스레드 고갈 | Tomcat busy ≈ max | Tomcat 스레드풀 부족 |
-| Redis 병목 | Redis Latency 급등 | 커넥션 부족 또는 느린 명령 |
-| CPU 포화 | CPU Usage 100% 근접 | 연산 과부하 |

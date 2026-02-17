@@ -57,6 +57,7 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        lettuce: true
 
 zticket:
   admission:
