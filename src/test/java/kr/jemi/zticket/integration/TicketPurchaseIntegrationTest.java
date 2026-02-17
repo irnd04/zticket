@@ -55,6 +55,10 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
                     .hasValueSatisfying(dbTicket ->
                             assertThat(dbTicket.getStatus()).isEqualTo(TicketStatus.SYNCED)
                     );
+
+            assertThat(activeUserPort.isActive(token))
+                    .as("active 유저 제거")
+                    .isFalse();
         });
     }
 

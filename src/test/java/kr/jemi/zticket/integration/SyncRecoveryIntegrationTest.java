@@ -1,5 +1,7 @@
 package kr.jemi.zticket.integration;
 
+import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
+import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
 import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
 import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.ticket.domain.Ticket;
@@ -22,13 +24,20 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
     @Autowired
     TicketPersistencePort ticketPersistencePort;
 
+    @Autowired
+    ActiveUserPort activeUserPort;
+
+    @Autowired
+    SeatHoldPort seatHoldPort;
+
     @Test
     @DisplayName("Case 2 복구: Redis held + DB PAID -> syncPaidTickets -> Redis paid + DB SYNCED")
     void case2_redis_held_db_paid_sync_recovers() {
         String token = "token-1";
         int seatNumber = 1;
 
-        redisTemplate.opsForValue().set("seat:" + seatNumber, "held:" + token, 300, TimeUnit.SECONDS);
+        activeUserPort.activate(token, 300);
+        seatHoldPort.holdSeat(seatNumber, token, 300);
         Ticket ticket = Ticket.create(token, seatNumber);
         ticketPersistencePort.save(ticket);
 
@@ -44,6 +53,10 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
                     );
+
+            assertThat(activeUserPort.isActive(token))
+                    .as("active 유저 제거")
+                    .isFalse();
         });
     }
 
@@ -53,7 +66,8 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         String token = "token-1";
         int seatNumber = 1;
 
-        redisTemplate.opsForValue().set("seat:" + seatNumber, "paid:" + token);
+        activeUserPort.activate(token, 300);
+        seatHoldPort.paySeat(seatNumber, token);
         Ticket ticket = Ticket.create(token, seatNumber);
         ticketPersistencePort.save(ticket);
 
@@ -69,6 +83,10 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
                     );
+
+            assertThat(activeUserPort.isActive(token))
+                    .as("active 유저 제거")
+                    .isFalse();
         });
     }
 
@@ -79,6 +97,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         int seatNumber = 1;
         String seatKey = "seat:" + seatNumber;
 
+        activeUserPort.activate(token, 300);
         Ticket ticket = Ticket.create(token, seatNumber);
         ticketPersistencePort.save(ticket);
 
@@ -98,6 +117,10 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
                     );
+
+            assertThat(activeUserPort.isActive(token))
+                    .as("active 유저 제거")
+                    .isFalse();
         });
     }
 }

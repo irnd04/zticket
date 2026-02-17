@@ -37,10 +37,10 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
     TicketPersistencePort ticketPersistencePort;
 
     @Test
-    @DisplayName("동시 구매 경쟁: 10개 스레드 중 정확히 1개만 성공")
+    @DisplayName("동시 구매 경쟁: 100개 스레드 중 정확히 1개만 성공")
     void concurrent_purchase_only_one_succeeds() throws InterruptedException {
         int seatNumber = 1;
-        int threadCount = 10;
+        int threadCount = 100;
 
         List<String> tokens = IntStream.range(0, threadCount)
                 .mapToObj(i -> "token-" + i)
@@ -76,6 +76,11 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
         assertThat(successCount).as("성공 수").hasValue(1);
         assertThat(failCount).as("실패 수").hasValue(threadCount - 1);
 
+        // 성공한 토큰 추출
+        String winnerToken = redisTemplate.opsForValue().get("seat:" + seatNumber);
+        assertThat(winnerToken).startsWith("held:");
+        String winner = winnerToken.substring("held:".length());
+
         // 비동기 후처리 완료 대기
         await().atMost(5, SECONDS).untilAsserted(() -> {
             assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
@@ -87,6 +92,10 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
                     .singleElement()
                     .extracting(Ticket::getSeatNumber)
                     .isEqualTo(seatNumber);
+
+            assertThat(activeUserPort.isActive(winner))
+                    .as("active 유저 제거")
+                    .isFalse();
         });
     }
 
