@@ -14,8 +14,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 class TicketPurchaseIntegrationTest extends IntegrationTestBase {
 
@@ -32,7 +34,7 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
     TicketPersistencePort ticketPersistencePort;
 
     @Test
-    @DisplayName("정상 구매 E2E: active user -> holdSeat -> DB PAID -> paySeat -> DB SYNCED")
+    @DisplayName("정상 구매 E2E: DB PAID → 비동기 후처리(Redis paid, DB SYNCED)")
     void purchase_success_e2e() {
         String token = "test-token-1";
         int seatNumber = 1;
@@ -40,16 +42,20 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
         activeUserPort.activate(token, 300);
 
         Ticket ticket = purchaseTicketUseCase.purchase(token, seatNumber);
+        assertThat(ticket.getStatus()).isEqualTo(TicketStatus.PAID);
 
-        assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
-                .as("Redis 좌석 상태")
-                .isEqualTo("paid:" + token);
+        // 비동기 후처리 완료 대기
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
+                    .as("Redis 좌석 상태")
+                    .isEqualTo("paid:" + token);
 
-        assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
-                .as("DB 티켓 상태")
-                .hasValueSatisfying(dbTicket ->
-                        assertThat(dbTicket.getStatus()).isEqualTo(TicketStatus.SYNCED)
-                );
+            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+                    .as("DB 티켓 상태")
+                    .hasValueSatisfying(dbTicket ->
+                            assertThat(dbTicket.getStatus()).isEqualTo(TicketStatus.SYNCED)
+                    );
+        });
     }
 
     @Test
@@ -79,15 +85,19 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("좌석 현황 조회: 구매 후 paid 상태 확인")
+    @DisplayName("좌석 현황 조회: 구매 후 비동기 후처리 완료 시 paid 상태")
     void getAllSeatStatuses_after_purchase() {
         activeUserPort.activate("token-1", 300);
         purchaseTicketUseCase.purchase("token-1", 3);
 
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses();
+            assertThat(statuses.of(3)).isEqualTo(SeatStatus.PAID);
+        });
+
         SeatStatuses statuses = getSeatsUseCase.getAllSeatStatuses();
         assertThat(statuses.of(1)).isEqualTo(SeatStatus.AVAILABLE);
         assertThat(statuses.of(2)).isEqualTo(SeatStatus.AVAILABLE);
-        assertThat(statuses.of(3)).isEqualTo(SeatStatus.PAID);
         assertThat(statuses.of(4)).isEqualTo(SeatStatus.AVAILABLE);
         assertThat(statuses.of(5)).isEqualTo(SeatStatus.AVAILABLE);
     }

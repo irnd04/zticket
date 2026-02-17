@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.Arrays;
 import java.util.List;
@@ -24,9 +23,6 @@ class SeatHoldRedisAdapterTest {
 
     @Mock
     private StringRedisTemplate redisTemplate;
-
-    @Mock
-    private DefaultRedisScript<Long> paySeatScript;
 
     @Mock
     private ValueOperations<String, String> valueOperations;

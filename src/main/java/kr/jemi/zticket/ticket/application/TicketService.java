@@ -7,9 +7,11 @@ import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.ticket.domain.Ticket;
+import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 
@@ -21,15 +23,18 @@ public class TicketService implements PurchaseTicketUseCase {
     private final SeatHoldPort seatHoldPort;
     private final TicketPersistencePort ticketPersistencePort;
     private final ActiveUserPort activeUserPort;
+    private final ApplicationEventPublisher eventPublisher;
     private final long holdTtlSeconds;
 
     public TicketService(SeatHoldPort seatHoldPort,
                          TicketPersistencePort ticketPersistencePort,
                          ActiveUserPort activeUserPort,
+                         ApplicationEventPublisher eventPublisher,
                          @Value("${zticket.seat.hold-ttl-seconds}") long holdTtlSeconds) {
         this.seatHoldPort = seatHoldPort;
         this.ticketPersistencePort = ticketPersistencePort;
         this.activeUserPort = activeUserPort;
+        this.eventPublisher = eventPublisher;
         this.holdTtlSeconds = holdTtlSeconds;
     }
 
@@ -57,19 +62,8 @@ public class TicketService implements PurchaseTicketUseCase {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR);
         }
 
-        // 4. Redis 좌석 결제 확정 (held → paid + PERSIST)
-        boolean paid = seatHoldPort.paySeat(seatNumber, queueToken);
-        if (!paid) {
-            log.error("좌석 결제 확정 실패, 복구 워커가 처리 예정: ticketUuid={}", ticket.getUuid());
-            return ticket;
-        }
-
-        // 5. DB 티켓 상태를 SYNCED로 변경
-        ticket.sync();
-        ticket = ticketPersistencePort.save(ticket);
-
-        // 6. active 유저에서 제거 (구매 완료 → 자리 반환)
-        activeUserPort.deactivate(queueToken);
+        // 4~6. 비동기 후처리 (Redis paid 전환, DB SYNCED, active 유저 제거)
+        eventPublisher.publishEvent(new TicketPaidEvent(ticket.getUuid()));
 
         return ticket;
     }

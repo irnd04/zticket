@@ -166,7 +166,7 @@ sequenceDiagram
 
 **peek → activate → remove 3단계 분리**: peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
-### 4. 구매 플로우 (5단계 2-Phase)
+### 4. 구매 플로우 (6단계 2-Phase)
 
 > 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
 
@@ -199,15 +199,21 @@ sequenceDiagram
         T-->>C: INTERNAL_ERROR
     end
 
-    T->>R: 4. Lua: held → paid 전환
+    T->>R: 4. SET seat:N paid:{token} (held → paid 전환)
     alt paid 전환 실패
         Note over T: 동기화 워커가 복구 예정
-        T-->>C: INTERNAL_ERROR
+        T-->>C: PAID 티켓 반환
     end
 
     T->>DB: 5. UPDATE ticket SET status=SYNCED
     alt SYNCED 갱신 실패
         Note over T: 동기화 워커가 복구 예정
+        T-->>C: INTERNAL_ERROR
+    end
+
+    T->>R: 6. DEL active_user:{token}
+    alt 삭제 실패
+        Note over T: TTL 자동 만료로 대응
         T-->>C: INTERNAL_ERROR
     end
     T-->>C: 완료 (status=SYNCED)
@@ -253,10 +259,10 @@ flowchart TD
 ```
 상태: DB에 PAID 레코드 있음 + Redis에 held:{token} (TTL 째깍째깍)
 위험: TTL 만료 → 다른 사용자가 같은 좌석 hold 가능
-해결: 동기화 워커가 1분마다 PAID 조회 → setPaidSeat으로 Redis에 paid:{token} 복원
+해결: 동기화 워커가 1분마다 PAID 조회 → paySeat으로 Redis에 paid:{token} 복원
 안전망: TTL 만료 전에 동기화 워커가 처리. 설령 TTL 만료 후 다른 사용자가 hold해도
        DB tickets 테이블의 seatNumber UNIQUE 제약 때문에 해당 사용자의 DB 저장이 실패함.
-       따라서 setPaidSeat으로 덮어써도 중복 판매 없음.
+       따라서 paySeat으로 덮어써도 중복 판매 없음.
 ```
 
 #### Case 3: Redis paid + DB UPDATE SYNCED 중 서버 사망
@@ -264,7 +270,7 @@ flowchart TD
 ```
 상태: Redis에 paid:{token} (영구) + DB에 PAID 레코드
 위험: DB만 PAID이지만 좌석은 이미 확보됨 → 중복 판매 없음
-해결: 동기화 워커가 setPaidSeat 재실행 → 이미 paid이므로 동일한 결과 → DB SYNCED
+해결: 동기화 워커가 paySeat 재실행 → 이미 paid이므로 동일한 결과 → DB SYNCED
 ```
 
 #### 왜 이 전략이 안전한가?
@@ -274,7 +280,8 @@ flowchart TD
 | 2단계 이후 | held (TTL) | 없음 | 불가능 (즉시 롤백 또는 TTL 만료) | TTL 자동 해제 |
 | 3단계 이후 | held (TTL) | PAID | 불가능 (UNIQUE 제약) | 동기화 워커 |
 | 4단계 이후 | paid | PAID | 불가능 (영구 점유) | 동기화 워커가 DB만 갱신 |
-| 5단계 이후 | paid | SYNCED | 불가능 | 이미 완료 |
+| 5단계 이후 | paid | SYNCED | 불가능 | active_user TTL 자동 만료 |
+| 6단계 이후 | paid | SYNCED | 불가능 | 이미 완료 |
 
 **핵심 불변식**:
 - `동기화 워커 주기(1분) < hold TTL(5분)` → TTL 만료 전 동기화 완료
@@ -284,11 +291,7 @@ flowchart TD
 
 ---
 
-### 2. 좌석 Redis 연산: 선점(hold)과 결제 확정(pay)
-
-좌석 상태를 변경하는 Redis 연산은 두 가지인데, 각각 요구사항이 달라 다른 방식을 사용합니다.
-
-#### 선점 (hold): `SET NX EX`
+### 2. 좌석 선점: `SET NX EX`
 
 "키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
 
@@ -296,18 +299,6 @@ flowchart TD
 // SeatHoldRedisAdapter.java
 Boolean success = redisTemplate.opsForValue()
         .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
-```
-
-#### 결제 확정 (pay): Lua Script
-
-"현재 값이 정확히 `held:{token}`인 경우에만 `paid:{token}`으로 교체"라는 CAS(Compare-And-Swap)가 필요합니다. GET과 SET 사이에 다른 클라이언트가 끼어들 수 있으므로, 두 연산을 원자적으로 묶는 Lua Script를 사용합니다.
-
-```lua
--- pay-seat.lua: held → paid 원자적 전환
-local current = redis.call('GET', KEYS[1])
-if current ~= ARGV[1] then return 1 end    -- 내 hold가 아님
-redis.call('SET', KEYS[1], ARGV[2])         -- SET이 기존 TTL 자동 제거
-return 0
 ```
 
 ---
@@ -749,7 +740,7 @@ kr.jemi.zticket
 │   │   │   ├── in/
 │   │   │   │   └── GetSeatsUseCase.java           좌석 현황 조회
 │   │   │   └── out/
-│   │   │       └── SeatHoldPort.java           hold/pay/release/setPaid/getStatuses
+│   │   │       └── SeatHoldPort.java           hold/pay/release/getStatuses
 │   │   └── SeatService.java                    좌석 현황 조회
 │   └── adapter/
 │       ├── in/
@@ -760,7 +751,7 @@ kr.jemi.zticket
 │       │           └── AvailableCountResponse.java    잔여 좌석 수
 │       └── out/
 │           └── redis/
-│               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(Lua)
+│               └── SeatHoldRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
 │
 ├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
 │   ├── domain/
@@ -773,7 +764,7 @@ kr.jemi.zticket
 │   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
 │   │   │   └── out/
 │   │   │       └── TicketPersistencePort.java  save/findByUuid/findByStatus
-│   │   ├── TicketService.java                  5단계 구매 오케스트레이션
+│   │   ├── TicketService.java                  6단계 구매 오케스트레이션
 │   │   └── TicketSyncService.java              PAID → Redis 동기화
 │   └── adapter/
 │       ├── in/
@@ -801,7 +792,6 @@ kr.jemi.zticket
 │       └── ErrorResponse.java                     에러 응답 DTO
 │
 └── config/
-    └── RedisConfig.java                        paySeatScript 빈 등록
     (스케줄러 설정은 application.yml spring.task.scheduling으로 처리)
 ```
 
@@ -812,13 +802,6 @@ ticket → queue (ActiveUserPort: 활성 사용자 검증)
 ticket → seat  (SeatHoldPort: 좌석 선점/결제)
 seat   → (독립)
 queue  → (독립)
-```
-
-### Lua Script
-
-```
-src/main/resources/scripts/
-└── pay-seat.lua          held → paid 원자적 전환 (SET이 TTL 자동 제거)
 ```
 
 ### Thymeleaf 화면

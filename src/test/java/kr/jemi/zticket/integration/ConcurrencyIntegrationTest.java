@@ -20,8 +20,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 class ConcurrencyIntegrationTest extends IntegrationTestBase {
 
@@ -74,15 +76,18 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
         assertThat(successCount).as("성공 수").hasValue(1);
         assertThat(failCount).as("실패 수").hasValue(threadCount - 1);
 
-        assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
-                .as("Redis seat 키")
-                .startsWith("paid:");
+        // 비동기 후처리 완료 대기
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
+                    .as("Redis seat 키")
+                    .startsWith("paid:");
 
-        assertThat(ticketPersistencePort.findByStatus(TicketStatus.SYNCED))
-                .as("DB SYNCED 티켓")
-                .singleElement()
-                .extracting(Ticket::getSeatNumber)
-                .isEqualTo(seatNumber);
+            assertThat(ticketPersistencePort.findByStatus(TicketStatus.SYNCED))
+                    .as("DB SYNCED 티켓")
+                    .singleElement()
+                    .extracting(Ticket::getSeatNumber)
+                    .isEqualTo(seatNumber);
+        });
     }
 
     @Test

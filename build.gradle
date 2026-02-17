@@ -29,6 +29,7 @@ dependencies {
     implementation 'com.github.ben-manes.caffeine:caffeine'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     runtimeOnly 'com.mysql:mysql-connector-j'
+    testImplementation 'org.awaitility:awaitility'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation platform('org.testcontainers:testcontainers-bom:1.20.4')

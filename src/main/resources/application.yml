@@ -23,6 +23,11 @@ spring:
     open-in-view: false
 
   task:
+    execution:
+      pool:
+        core-size: 20
+        max-size: 20
+      thread-name-prefix: "zticket-async-"
     scheduling:
       pool:
         size: 2

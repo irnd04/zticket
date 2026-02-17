@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.concurrent.TimeUnit;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 class SyncRecoveryIntegrationTest extends IntegrationTestBase {
 
@@ -32,15 +34,17 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
 
         syncTicketUseCase.syncPaidTickets();
 
-        assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
-                .as("Redis held -> paid 전환")
-                .isEqualTo("paid:" + token);
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
+                    .as("Redis held -> paid 전환")
+                    .isEqualTo("paid:" + token);
 
-        assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
-                .as("DB PAID -> SYNCED 전환")
-                .hasValueSatisfying(t ->
-                        assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
-                );
+            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+                    .as("DB PAID -> SYNCED 전환")
+                    .hasValueSatisfying(t ->
+                            assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
+                    );
+        });
     }
 
     @Test
@@ -55,15 +59,17 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
 
         syncTicketUseCase.syncPaidTickets();
 
-        assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
-                .as("Redis paid 유지")
-                .isEqualTo("paid:" + token);
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            assertThat(redisTemplate.opsForValue().get("seat:" + seatNumber))
+                    .as("Redis paid 유지")
+                    .isEqualTo("paid:" + token);
 
-        assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
-                .as("DB SYNCED 멱등 전환")
-                .hasValueSatisfying(t ->
-                        assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
-                );
+            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+                    .as("DB SYNCED 멱등 전환")
+                    .hasValueSatisfying(t ->
+                            assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
+                    );
+        });
     }
 
     @Test
@@ -82,14 +88,16 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
 
         syncTicketUseCase.syncPaidTickets();
 
-        assertThat(redisTemplate.opsForValue().get(seatKey))
-                .as("Redis paid 복원")
-                .isEqualTo("paid:" + token);
+        await().atMost(5, SECONDS).untilAsserted(() -> {
+            assertThat(redisTemplate.opsForValue().get(seatKey))
+                    .as("Redis paid 복원")
+                    .isEqualTo("paid:" + token);
 
-        assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
-                .as("DB SYNCED 전환")
-                .hasValueSatisfying(t ->
-                        assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
-                );
+            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+                    .as("DB SYNCED 전환")
+                    .hasValueSatisfying(t ->
+                            assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
+                    );
+        });
     }
 }
