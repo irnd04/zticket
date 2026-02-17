@@ -614,7 +614,7 @@ k6 run k6/queue-stress.js &
 | Tomcat Threads | 200 | max 풀 사용 |
 | Process CPU | 36% | 앱 자체는 여유 |
 | System CPU | 83% | k6와 CPU 경합 (병목) |
-| JVM Heap | 589MB (avg) / 879MB (peak) | GC 후 안정 |
+| JVM Heap | 589MB (avg) / 879MB (peak) | 여유 |
 
 #### Redis
 
