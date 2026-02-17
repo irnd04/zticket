@@ -2,7 +2,7 @@ package kr.jemi.zticket.ticket.application;
 
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
@@ -28,7 +28,7 @@ class TicketPaidEventListenerTest {
     private SeatHoldPort seatHoldPort;
 
     @Mock
-    private TicketPersistencePort ticketPersistencePort;
+    private TicketPort ticketPort;
 
     @Mock
     private ActiveUserPort activeUserPort;
@@ -41,16 +41,16 @@ class TicketPaidEventListenerTest {
     void shouldExecuteStepsInOrder() {
         // given
         Ticket ticket = new Ticket(1L, "uuid-1", 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
-        given(ticketPersistencePort.findByUuid("uuid-1")).willReturn(Optional.of(ticket));
-        given(ticketPersistencePort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
+        given(ticketPort.findByUuid("uuid-1")).willReturn(Optional.of(ticket));
+        given(ticketPort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
         listener.handle(new TicketPaidEvent("uuid-1"));
 
         // then
-        InOrder inOrder = inOrder(seatHoldPort, ticketPersistencePort, activeUserPort);
+        InOrder inOrder = inOrder(seatHoldPort, ticketPort, activeUserPort);
         inOrder.verify(seatHoldPort).paySeat(7, "token-1");
-        inOrder.verify(ticketPersistencePort).save(any(Ticket.class));
+        inOrder.verify(ticketPort).save(any(Ticket.class));
         inOrder.verify(activeUserPort).deactivate("token-1");
     }
 
@@ -58,7 +58,7 @@ class TicketPaidEventListenerTest {
     @DisplayName("존재하지 않는 티켓 UUID이면 IllegalStateException이 발생한다")
     void shouldThrowWhenTicketNotFound() {
         // given
-        given(ticketPersistencePort.findByUuid("non-existent")).willReturn(Optional.empty());
+        given(ticketPort.findByUuid("non-existent")).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> listener.handle(new TicketPaidEvent("non-existent")))

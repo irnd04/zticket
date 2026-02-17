@@ -3,7 +3,7 @@ package kr.jemi.zticket.integration;
 import kr.jemi.zticket.ticket.adapter.out.persistence.TicketJpaEntity;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
@@ -34,7 +34,7 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
     ActiveUserPort activeUserPort;
 
     @Autowired
-    TicketPersistencePort ticketPersistencePort;
+    TicketPort ticketPort;
 
     @Test
     @DisplayName("동시 구매 경쟁: 100개 스레드 중 정확히 1개만 성공")
@@ -87,7 +87,7 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
                     .as("Redis seat 키")
                     .startsWith("paid:");
 
-            assertThat(ticketPersistencePort.findByStatus(TicketStatus.SYNCED))
+            assertThat(ticketPort.findByStatus(TicketStatus.SYNCED))
                     .as("DB SYNCED 티켓")
                     .singleElement()
                     .extracting(Ticket::getSeatNumber)

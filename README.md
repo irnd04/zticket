@@ -447,7 +447,7 @@ public Ticket save(Ticket ticket) {
 
 **채택 이유**:
 - **도메인 순수성**: Port 인터페이스가 경계를, Adapter의 객체 변환이 분리를 만듭니다. `Ticket.java`에 `@Entity` 같은 JPA 어노테이션이 없습니다. Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
-- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPersistencePort`만 Mock하면 Redis/MySQL 없이도 구매 로직을 완벽히 테스트할 수 있습니다.
+- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPort`만 Mock하면 Redis/MySQL 없이도 구매 로직을 완벽히 테스트할 수 있습니다.
 - **의존성 방향 제어**: DIP에 의해 모든 의존성이 domain을 향합니다 (`adapter → application → domain`). domain은 어디에도 의존하지 않습니다.
 - **경계의 명시성**: `port/in`, `port/out`, `adapter/in`, `adapter/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
 
@@ -497,7 +497,7 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 ```java
 // TicketService.java - 상태 전이는 도메인 엔티티가 담당
 ticket.sync();                       // Ticket 내부에서 PAID→SYNCED 전환 + 유효성 검증
-ticketPersistencePort.save(ticket);  // 변경된 도메인 객체를 그대로 저장
+ticketPort.save(ticket);  // 변경된 도메인 객체를 그대로 저장
 ```
 
 ```java
@@ -515,7 +515,7 @@ public Ticket save(Ticket ticket) {
 
 **채택 이유**:
 - **도메인 로직 캡슐화**: 상태 전이 규칙(PAID→SYNCED만 허용)이 `Ticket.sync()` 메서드 안에 있습니다. `updateStatus(uuid, SYNCED)`는 어디서든 아무 상태로나 변경할 수 있어 도메인 불변식이 깨질 수 있습니다.
-- **Port 인터페이스 단순화**: `TicketPersistencePort`에 `save`, `findByUuid`, `findByStatus` 3개 메서드만 있습니다. `updateStatus`가 없으므로 포트가 더 범용적입니다.
+- **Port 인터페이스 단순화**: `TicketPort`에 `save`, `findByUuid`, `findByStatus` 3개 메서드만 있습니다. `updateStatus`가 없으므로 포트가 더 범용적입니다.
 - **Upsert 패턴**: 같은 `save()` 메서드로 INSERT(첫 저장)와 UPDATE(상태 변경)를 모두 처리합니다.
 
 **트레이드오프**:
@@ -768,7 +768,7 @@ kr.jemi.zticket
 │   │   │   │   ├── PurchaseTicketUseCase.java  purchase(queueToken, seatNumber)
 │   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
 │   │   │   └── out/
-│   │   │       └── TicketPersistencePort.java  save/findByUuid/findByStatus
+│   │   │       └── TicketPort.java  save/findByUuid/findByStatus
 │   │   ├── TicketService.java                  동기 3단계 구매 + 이벤트 발행
 │   │   ├── TicketSyncService.java              PAID 티켓 이벤트 재발행 (배치 복구)
 │   │   └── TicketPaidEventListener.java        @Async 후처리 (paid 전환, SYNCED, deactivate)

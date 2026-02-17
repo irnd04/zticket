@@ -5,7 +5,7 @@ import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.seat.domain.Seats;
@@ -32,7 +32,7 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
     ActiveUserPort activeUserPort;
 
     @Autowired
-    TicketPersistencePort ticketPersistencePort;
+    TicketPort ticketPort;
 
     @Test
     @DisplayName("정상 구매 E2E: DB PAID → 비동기 후처리(Redis paid, DB SYNCED)")
@@ -51,7 +51,7 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
                     .as("Redis 좌석 상태")
                     .isEqualTo("paid:" + token);
 
-            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+            assertThat(ticketPort.findByUuid(ticket.getUuid()))
                     .as("DB 티켓 상태")
                     .hasValueSatisfying(dbTicket ->
                             assertThat(dbTicket.getStatus()).isEqualTo(TicketStatus.SYNCED)

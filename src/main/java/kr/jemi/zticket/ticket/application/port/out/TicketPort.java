@@ -6,7 +6,7 @@ import kr.jemi.zticket.ticket.domain.TicketStatus;
 import java.util.List;
 import java.util.Optional;
 
-public interface TicketPersistencePort {
+public interface TicketPort {
 
     Ticket save(Ticket ticket);
 

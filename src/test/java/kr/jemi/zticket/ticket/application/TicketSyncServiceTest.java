@@ -1,6 +1,6 @@
 package kr.jemi.zticket.ticket.application;
 
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
@@ -24,7 +24,7 @@ import static org.mockito.BDDMockito.*;
 class TicketSyncServiceTest {
 
     @Mock
-    private TicketPersistencePort ticketPersistencePort;
+    private TicketPort ticketPort;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -38,7 +38,7 @@ class TicketSyncServiceTest {
         // given
         Ticket ticket1 = new Ticket(null, "uuid-1", 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
         Ticket ticket2 = new Ticket(null, "uuid-2", 42, TicketStatus.PAID, "token-2", LocalDateTime.now(), null);
-        given(ticketPersistencePort.findByStatus(TicketStatus.PAID))
+        given(ticketPort.findByStatus(TicketStatus.PAID))
                 .willReturn(List.of(ticket1, ticket2));
 
         // when
@@ -56,7 +56,7 @@ class TicketSyncServiceTest {
     @DisplayName("PAID 티켓이 없으면 이벤트를 발행하지 않는다")
     void shouldNotPublishWhenNoPaidTickets() {
         // given
-        given(ticketPersistencePort.findByStatus(TicketStatus.PAID))
+        given(ticketPort.findByStatus(TicketStatus.PAID))
                 .willReturn(List.of());
 
         // when

@@ -3,7 +3,7 @@ package kr.jemi.zticket.ticket.application;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.ticket.domain.Ticket;
@@ -21,18 +21,18 @@ public class TicketService implements PurchaseTicketUseCase {
     private static final Logger log = LoggerFactory.getLogger(TicketService.class);
 
     private final SeatHoldPort seatHoldPort;
-    private final TicketPersistencePort ticketPersistencePort;
+    private final TicketPort ticketPort;
     private final ActiveUserPort activeUserPort;
     private final ApplicationEventPublisher eventPublisher;
     private final long holdTtlSeconds;
 
     public TicketService(SeatHoldPort seatHoldPort,
-                         TicketPersistencePort ticketPersistencePort,
+                         TicketPort ticketPort,
                          ActiveUserPort activeUserPort,
                          ApplicationEventPublisher eventPublisher,
                          @Value("${zticket.seat.hold-ttl-seconds}") long holdTtlSeconds) {
         this.seatHoldPort = seatHoldPort;
-        this.ticketPersistencePort = ticketPersistencePort;
+        this.ticketPort = ticketPort;
         this.activeUserPort = activeUserPort;
         this.eventPublisher = eventPublisher;
         this.holdTtlSeconds = holdTtlSeconds;
@@ -54,7 +54,7 @@ public class TicketService implements PurchaseTicketUseCase {
         // 3. DB에 PAID 티켓 저장 (결제 완료)
         Ticket ticket = Ticket.create(queueToken, seatNumber);
         try {
-            ticket = ticketPersistencePort.save(ticket);
+            ticket = ticketPort.save(ticket);
         } catch (Exception e) {
             // 롤백: Redis 좌석 해제
             log.error("DB 저장 실패, 좌석 해제: {}", seatNumber, e);

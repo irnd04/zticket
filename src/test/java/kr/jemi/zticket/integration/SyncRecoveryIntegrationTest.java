@@ -3,7 +3,7 @@ package kr.jemi.zticket.integration;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.seat.application.port.out.SeatHoldPort;
 import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -22,7 +22,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
     SyncTicketUseCase syncTicketUseCase;
 
     @Autowired
-    TicketPersistencePort ticketPersistencePort;
+    TicketPort ticketPort;
 
     @Autowired
     ActiveUserPort activeUserPort;
@@ -39,7 +39,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         activeUserPort.activate(token, 300);
         seatHoldPort.holdSeat(seatNumber, token, 300);
         Ticket ticket = Ticket.create(token, seatNumber);
-        ticketPersistencePort.save(ticket);
+        ticketPort.save(ticket);
 
         syncTicketUseCase.syncPaidTickets();
 
@@ -48,7 +48,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .as("Redis held -> paid 전환")
                     .isEqualTo("paid:" + token);
 
-            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+            assertThat(ticketPort.findByUuid(ticket.getUuid()))
                     .as("DB PAID -> SYNCED 전환")
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
@@ -69,7 +69,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
         activeUserPort.activate(token, 300);
         seatHoldPort.paySeat(seatNumber, token);
         Ticket ticket = Ticket.create(token, seatNumber);
-        ticketPersistencePort.save(ticket);
+        ticketPort.save(ticket);
 
         syncTicketUseCase.syncPaidTickets();
 
@@ -78,7 +78,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .as("Redis paid 유지")
                     .isEqualTo("paid:" + token);
 
-            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+            assertThat(ticketPort.findByUuid(ticket.getUuid()))
                     .as("DB SYNCED 멱등 전환")
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
@@ -99,7 +99,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
 
         activeUserPort.activate(token, 300);
         Ticket ticket = Ticket.create(token, seatNumber);
-        ticketPersistencePort.save(ticket);
+        ticketPort.save(ticket);
 
         assertThat(redisTemplate.hasKey(seatKey))
                 .as("TTL 만료 시뮬레이션: Redis 키 부재")
@@ -112,7 +112,7 @@ class SyncRecoveryIntegrationTest extends IntegrationTestBase {
                     .as("Redis paid 복원")
                     .isEqualTo("paid:" + token);
 
-            assertThat(ticketPersistencePort.findByUuid(ticket.getUuid()))
+            assertThat(ticketPort.findByUuid(ticket.getUuid()))
                     .as("DB SYNCED 전환")
                     .hasValueSatisfying(t ->
                             assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)

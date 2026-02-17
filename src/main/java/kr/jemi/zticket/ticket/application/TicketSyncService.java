@@ -1,7 +1,7 @@
 package kr.jemi.zticket.ticket.application;
 
 import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
@@ -17,18 +17,18 @@ public class TicketSyncService implements SyncTicketUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(TicketSyncService.class);
 
-    private final TicketPersistencePort ticketPersistencePort;
+    private final TicketPort ticketPort;
     private final ApplicationEventPublisher eventPublisher;
 
-    public TicketSyncService(TicketPersistencePort ticketPersistencePort,
+    public TicketSyncService(TicketPort ticketPort,
                              ApplicationEventPublisher eventPublisher) {
-        this.ticketPersistencePort = ticketPersistencePort;
+        this.ticketPort = ticketPort;
         this.eventPublisher = eventPublisher;
     }
 
     @Override
     public void syncPaidTickets() {
-        List<Ticket> paidTickets = ticketPersistencePort.findByStatus(TicketStatus.PAID);
+        List<Ticket> paidTickets = ticketPort.findByStatus(TicketStatus.PAID);
 
         for (Ticket ticket : paidTickets) {
             eventPublisher.publishEvent(new TicketPaidEvent(ticket.getUuid()));

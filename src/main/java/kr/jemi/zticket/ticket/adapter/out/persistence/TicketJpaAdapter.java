@@ -2,14 +2,14 @@ package kr.jemi.zticket.ticket.adapter.out.persistence;
 
 import kr.jemi.zticket.ticket.domain.Ticket;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
-import kr.jemi.zticket.ticket.application.port.out.TicketPersistencePort;
+import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
 @Component
-public class TicketJpaAdapter implements TicketPersistencePort {
+public class TicketJpaAdapter implements TicketPort {
 
     private final TicketJpaRepository repository;
 
