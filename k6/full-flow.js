@@ -62,11 +62,14 @@ export default function () {
     if (!active) return;
 
     // === 3. 좌석 조회 ===
-    const seatsRes = http.get(`${BASE_URL}/api/seats`);
+    const seatsRes = http.get(`${BASE_URL}/api/seats`, {
+        headers: { 'X-Queue-Token': uuid },
+    });
 
-    check(seatsRes, {
+    const seatsOk = check(seatsRes, {
         'seats: status 200': (r) => r.status === 200,
     });
+    if (!seatsOk) return;
 
     const seats = seatsRes.json();
     const available = seats.filter((s) => s.status === 'available');
