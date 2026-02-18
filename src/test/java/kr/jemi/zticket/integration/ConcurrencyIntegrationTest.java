@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
@@ -47,31 +46,30 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
                 .toList();
         tokens.forEach(t -> activeUserPort.activate(t, 300));
 
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         CountDownLatch readyLatch = new CountDownLatch(threadCount);
         CountDownLatch startLatch = new CountDownLatch(1);
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
 
-        for (String token : tokens) {
-            executor.submit(() -> {
-                readyLatch.countDown();
-                try {
-                    startLatch.await();
-                    purchaseTicketUseCase.purchase(token, seatNumber);
-                    successCount.incrementAndGet();
-                } catch (BusinessException e) {
-                    failCount.incrementAndGet();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
-        }
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (String token : tokens) {
+                executor.submit(() -> {
+                    readyLatch.countDown();
+                    try {
+                        startLatch.await();
+                        purchaseTicketUseCase.purchase(token, seatNumber);
+                        successCount.incrementAndGet();
+                    } catch (BusinessException e) {
+                        failCount.incrementAndGet();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+            }
 
-        readyLatch.await();
-        startLatch.countDown();
-        executor.shutdown();
-        executor.awaitTermination(10, TimeUnit.SECONDS);
+            readyLatch.await();
+            startLatch.countDown();
+        }
 
         assertThat(successCount).as("성공 수").hasValue(1);
         assertThat(failCount).as("실패 수").hasValue(threadCount - 1);

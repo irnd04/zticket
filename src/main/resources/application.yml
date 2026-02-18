@@ -34,7 +34,7 @@ spring:
   cache:
     type: caffeine
     caffeine:
-      spec: maximumSize=1,expireAfterWrite=20s
+      spec: maximumSize=1,expireAfterWrite=5s
 
   data:
     redis:

@@ -39,7 +39,7 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
     public long countActive() {
         long count = 0;
         ScanOptions options = ScanOptions.scanOptions()
-                .match(KEY_PREFIX + "*").count(1000).build();
+                .match(KEY_PREFIX + "*").count(5000).build();
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
             while (cursor.hasNext()) {
                 cursor.next();
