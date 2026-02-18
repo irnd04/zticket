@@ -1,7 +1,7 @@
 # ZTicket - 대용량 선착순 좌석 티켓 구매 시스템
 
 수십만 명 동시 접속 상황에서 선착순 좌석 티켓 구매를 처리하는 시스템입니다.
-Redis 기반 대기열과 비동기 이벤트 동기화 + 배치 복구를 통해
+Java 21 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기열, 비동기 이벤트 동기화 + 배치 복구를 통해
 **중복 판매 없는 정합성**과 **높은 처리량**을 동시에 달성합니다.
 
 ---
@@ -539,6 +539,23 @@ public Ticket save(Ticket ticket) {
 **트레이드오프**:
 - **불필요한 요청**: 순번 변화가 없어도 20초마다 요청을 보냅니다. 대기자 50만 명 × 0.05 req/s = ~25,000 req/s.
 - **최대 20초 지연**: 입장이 허용된 직후부터 최대 20초 후에야 클라이언트가 인지합니다.
+
+### 6. 스레드 모델: Virtual Thread vs Platform Thread
+
+#### 선택: Java 21 Virtual Thread (`spring.threads.virtual.enabled: true`)
+
+**Platform Thread를 사용하지 않는 이유**:
+- **스레드 풀이 병목**: Tomcat 기본 200개 스레드로는 동시 요청이 200개를 넘으면 대기열에 쌓입니다. 폴링 요청이 수만 req/s인 환경에서 스레드 풀 크기를 늘려도 OS 스레드 생성 비용(~1MB 스택)과 컨텍스트 스위칭 오버헤드로 한계가 있습니다.
+- **I/O 대기 중 스레드 점유**: Redis 호출이나 DB 쿼리를 기다리는 동안 platform thread가 블로킹되어 다른 요청을 처리하지 못합니다.
+
+**Virtual Thread 채택 이유**:
+- **요청당 생성·소멸**: 스레드 풀 없이 요청마다 VT를 생성합니다. 생성 비용이 수 μs, 스택 수 KB로 극히 낮아서 수만 개를 동시에 운용해도 부담이 없습니다.
+- **I/O 대기 시 자동 양보**: VT가 Redis/DB 응답을 기다리면 carrier thread에서 자동으로 unmount되어 다른 VT가 실행됩니다. 블로킹 코드 그대로 논블로킹 수준의 동시성을 달성합니다.
+- **코드 변경 최소화**: `spring.threads.virtual.enabled: true` 설정 하나로 Tomcat, `@Async`, `@Scheduled` 모두 VT 기반으로 전환됩니다.
+
+**주의사항**:
+- **HikariCP 풀 포화**: VT는 동시성 제한이 없으므로 수천 개의 VT가 동시에 DB 커넥션을 요청할 수 있습니다. 기본 pool size 10에서는 pending이 급증하므로, pool size를 충분히 확보해야 합니다 (현재 50으로 설정).
+- **pinning 주의**: `synchronized` 블록 내에서 I/O를 수행하면 VT가 carrier thread에 고정(pinning)되어 성능이 저하됩니다. `ReentrantLock`으로 대체하고, 혹시 모를 pinning 감지를 위해 `-Djdk.tracePinnedThreads=short`를 적용해야 합니다.
 
 ---
 
