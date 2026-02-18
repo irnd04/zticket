@@ -604,7 +604,7 @@ k6 run k6/queue-stress.js &
 | 엔드포인트 | 요청 수 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|--------|-----|-----|-------|------|
 | `POST /api/queues/tokens` | 132K | ~221 req/s | 462ms | 1.18s | 2.50s | 1분에 ~1.3만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` (200) | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 20초 폴링 기준 **~37만 명** 동시 대기 |
+| `GET /api/queues/tokens/{uuid}` | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 20초 폴링 기준 **~37만 명** 동시 대기 |
 | **합계** | **11.7M** | **~18.5K req/s** | | | | |
 
 #### 시스템 리소스
@@ -656,29 +656,32 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | 패널 | 설명 |
 |------|------|
 | HTTP Request Rate (req/s) | 엔드포인트별 초당 요청 수 |
+| HTTP Error Rate (4xx + 5xx) | 4xx/5xx 비율 |
 | HTTP Response Time (p95) | 상위 5% 응답 시간 |
 | HTTP Response Time (p99) | 상위 1% 응답 시간 |
 | HTTP Response Time (p99.9) | 상위 0.1% 응답 시간 |
-| HTTP Error Rate (4xx + 5xx) | 4xx/5xx 비율 |
-| HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
-| JVM Heap Memory | 힙 메모리 사용량 |
-| GC Pause Time | GC 멈춤 시간 |
-| CPU Usage | process/system CPU 사용률 |
-| JVM Threads | 라이브/피크 스레드 수 |
+| Logback Error / Warn Events | 애플리케이션 에러/경고 발생률 |
 | Redis Command Rate (ops/s) | 명령별 초당 처리량 |
 | Redis Latency (p95) | 상위 5% 명령 응답 시간 |
 | Redis Latency (p99) | 상위 1% 명령 응답 시간 |
 | Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
+| HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
 | HikariCP Connection Timeout | 커넥션 획득 타임아웃 |
-| Logback Error / Warn Events | 애플리케이션 에러/경고 발생률 |
+| CPU Usage | process/system CPU 사용률 |
+| JVM Heap Memory | 힙 메모리 사용량 |
+| GC Pause Time | GC 멈춤 시간 |
+| JVM Threads | 라이브/피크 스레드 수 |
 
 ### Actuator 엔드포인트
 
 | Path | 설명 |
 |------|------|
-| `/actuator/prometheus` | Prometheus 포맷 메트릭 |
-| `/actuator/health` | 앱 + DB + Redis 헬스체크 |
-| `/actuator/metrics` | 전체 메트릭 목록 |
+| `/actuator/health` | 앱·DB·Redis 상태 확인 |
+| `/actuator/prometheus` | Prometheus 스크래핑용 메트릭 |
+| `/actuator/metrics` | 등록된 메트릭 목록 조회 |
+| `/actuator/env` | 환경 변수 및 설정 프로퍼티 조회 |
+| `/actuator/conditions` | 자동 구성 조건 평가 결과 |
+| `/actuator/beans` | 등록된 Spring Bean 목록 |
 
 ---
 
