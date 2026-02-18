@@ -13,7 +13,6 @@ spring:
 
 zticket:
   admission:
-    batch-size: 5
     interval-ms: 20000
     active-ttl-seconds: 3
     max-active-users: 10

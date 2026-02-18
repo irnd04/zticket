@@ -53,12 +53,12 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
                 enterQueueUseCase.enter()
         );
 
-        admitUsersUseCase.admitBatch(2);
+        admitUsersUseCase.admitBatch();
 
         assertThat(tokens)
                 .filteredOn(t -> activeUserPort.isActive(t.uuid()))
-                .as("3명 중 2명만 active")
-                .hasSize(2);
+                .as("3명 전원 active")
+                .hasSize(3);
     }
 
     @Test
@@ -70,7 +70,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
                 .as("WAITING")
                 .isEqualTo(QueueStatus.WAITING);
 
-        admitUsersUseCase.admitBatch(1);
+        admitUsersUseCase.admitBatch();
 
         assertThat(getQueueTokenUseCase.getQueueToken(token.uuid()).status())
                 .as("ACTIVE")
@@ -81,7 +81,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
     @DisplayName("active TTL 만료 후 상태 조회 시 QUEUE_TOKEN_NOT_FOUND 예외")
     void status_after_active_ttl_expired_throws() {
         QueueToken token = enterQueueUseCase.enter();
-        admitUsersUseCase.admitBatch(1);
+        admitUsersUseCase.admitBatch();
 
         // active 키 직접 삭제하여 TTL 만료 시뮬레이션
         redisTemplate.delete("active_user:" + token.uuid());
@@ -99,7 +99,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
             tokens.add(enterQueueUseCase.enter());
         }
 
-        admitUsersUseCase.admitBatch(15);
+        admitUsersUseCase.admitBatch();
 
         assertThat(activeUserPort.countActive())
                 .as("active 유저 수")

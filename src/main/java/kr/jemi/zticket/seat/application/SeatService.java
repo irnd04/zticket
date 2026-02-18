@@ -37,4 +37,11 @@ public class SeatService implements GetSeatsUseCase {
                 .filter(seat -> statuses.of(seat).isAvailableFor(null))
                 .count();
     }
+
+    public long getAvailableCountNoCache() {
+        Seats statuses = getSeats(null);
+        return statuses.seatNumbers().stream()
+                .filter(seat -> statuses.of(seat).isAvailableFor(null))
+                .count();
+    }
 }

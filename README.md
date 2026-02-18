@@ -138,7 +138,7 @@ sequenceDiagram
     Q->>R: SCAN active_user:* → 현재 active 수 확인
     R-->>Q: currentActive
 
-    Note over Q: toAdmit = min(batchSize, maxActive - currentActive)
+    Note over Q: toAdmit = min(빈 슬롯, 잔여 좌석)
 
     Q->>R: ZRANGE waiting_queue 0 (toAdmit-1)
     R-->>Q: [uuid1, uuid2, ...]
@@ -345,8 +345,9 @@ waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
 // 1~3. 입장 처리
 long currentActive = activeUserPort.countActive();
-int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);
-int toAdmit = Math.min(batchSize, slotsAvailable);
+int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
+int remainingSeats = (int) seatService.getAvailableCount();
+int toAdmit = Math.min(availableSlots, remainingSeats);           // 빈 슬롯과 잔여 좌석 중 작은 값
 
 List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
 for (String uuid : candidates) {
@@ -846,7 +847,6 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    batch-size: 2000        # 20초마다 최대 입장 인원 수
     interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 2000  # 동시 active 유저 상한

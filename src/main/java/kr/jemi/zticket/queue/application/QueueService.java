@@ -66,14 +66,17 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     }
 
     @Override
-    public void admitBatch(int batchSize) {
+    public void admitBatch() {
         // 폴링하지 않는 유령 유저 제거 (score < now - waitingTtl)
         waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
         // 현재 active 유저 수를 확인하고 빈 슬롯만큼만 입장
         long currentActive = activeUserPort.countActive();
-        int slotsAvailable = (int) Math.max(0, maxActiveUsers - currentActive);
-        int toAdmit = Math.min(batchSize, slotsAvailable);
+        int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
+
+        // 잔여 좌석보다 많이 입장시켜도 의미 없음
+        int remainingSeats = (int) seatService.getAvailableCountNoCache();
+        int toAdmit = Math.min(availableSlots, remainingSeats);
 
         if (toAdmit <= 0) {
             return;
