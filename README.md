@@ -138,7 +138,7 @@ sequenceDiagram
     Q->>R: SCAN active_user:* → 현재 active 수 확인
     R-->>Q: currentActive
 
-    Note over Q: toAdmit = min(빈 슬롯, 잔여 좌석)
+    Note over Q: toAdmit = min(입장 가능 인원, 잔여 좌석)
 
     Q->>R: ZRANGE waiting_queue 0 (toAdmit-1)
     R-->>Q: [uuid1, uuid2, ...]
@@ -347,7 +347,7 @@ waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 long currentActive = activeUserPort.countActive();
 int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
 int remainingSeats = (int) seatService.getAvailableCount();
-int toAdmit = Math.min(availableSlots, remainingSeats);           // 빈 슬롯과 잔여 좌석 중 작은 값
+int toAdmit = Math.min(availableSlots, remainingSeats);           // 입장 가능 인원과 잔여 좌석 중 작은 값
 
 List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
 for (String uuid : candidates) {
