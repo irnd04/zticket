@@ -554,8 +554,8 @@ public Ticket save(Ticket ticket) {
 - **코드 변경 최소화**: `spring.threads.virtual.enabled: true` 설정 하나로 Tomcat, `@Async`, `@Scheduled` 모두 VT 기반으로 전환됩니다.
 
 **주의사항**:
-- **HikariCP 풀 포화**: VT는 동시성 제한이 없으므로 수천 개의 VT가 동시에 DB 커넥션을 요청할 수 있습니다. 기본 pool size 10에서는 pending이 급증하므로, pool size를 충분히 확보해야 합니다 (현재 50으로 설정).
-- **pinning 주의**: `synchronized` 블록 내에서 I/O를 수행하면 VT가 carrier thread에 고정(pinning)되어 성능이 저하됩니다. `ReentrantLock`으로 대체하고, 혹시 모를 pinning 감지를 위해 `-Djdk.tracePinnedThreads=short`를 적용해야 합니다.
+- **ThreadLocal 남용 금지**: VT는 요청마다 생성·소멸되므로 platform thread처럼 ThreadLocal이 누수되지는 않습니다. 하지만 VT가 수만 개 동시에 존재하면 ThreadLocal 인스턴스도 수만 개가 생성되어 순간 메모리 사용량이 증가합니다. 가능하면 `ScopedValue`(Java 25~)로 대체하는 것이 권장됩니다.
+- **pinning 주의**: `synchronized` 블록 내에서 블로킹 작업을 수행하면 VT가 carrier thread에 고정(pinning)되어 성능이 저하됩니다. `ReentrantLock`으로 대체하고, 혹시 모를 pinning 감지를 위해 `-Djdk.tracePinnedThreads=short`를 적용해야 합니다.
 
 ---
 
