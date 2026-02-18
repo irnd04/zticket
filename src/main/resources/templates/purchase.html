@@ -549,6 +549,16 @@
                 }
                 var data = await response.json();
                 renderSeatMap(data);
+
+                var soldOut = data.length > 0 && data.every(function(s) {
+                    return s.status.toLowerCase() === 'unavailable';
+                });
+                if (soldOut) {
+                    showToast('모든 좌석이 매진되었습니다. 홈으로 이동합니다.');
+                    setTimeout(function() {
+                        window.location.href = '/';
+                    }, 2000);
+                }
             } catch (error) {
                 renderSeatMap([]);
                 showToast(error.message);
