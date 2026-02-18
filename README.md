@@ -123,16 +123,6 @@ flowchart TD
     style END fill:#9f9,stroke:#333
 ```
 
-```mermaid
-flowchart LR
-    subgraph 정상 유저
-        N1[20초마다 폴링] --> N2[heartbeat score 갱신] --> N3[ZRANGEBYSCORE에 안 걸림 ✅]
-    end
-    subgraph 잠수 유저
-        G1[브라우저 닫음] --> G2[폴링 중단] --> G3[score가 2분+ 과거] --> G4[ZRANGEBYSCORE에 걸림 → 제거 ❌]
-    end
-```
-
 ### 3. 입장 스케줄러 플로우
 
 ```mermaid
