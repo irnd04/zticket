@@ -669,7 +669,7 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | Redis Latency (p95) | 상위 5% 명령 응답 시간 |
 | Redis Latency (p99) | 상위 1% 명령 응답 시간 |
 | Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
-| HikariCP Connection Timeout | 커넥션 획득 타임아웃 (VT 환경 핵심 오류 지표) |
+| HikariCP Connection Timeout | 커넥션 획득 타임아웃 |
 | Logback Error / Warn Events | 애플리케이션 에러/경고 발생률 |
 
 ### Actuator 엔드포인트
