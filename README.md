@@ -603,31 +603,31 @@ k6 run k6/queue-stress.js &
 
 | 엔드포인트 | 요청 수 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|--------|-----|-----|-------|------|
-| `POST /api/queues/tokens` | 102K | ~171 req/s | 15ms | 33ms | 62ms | 1분에 ~1만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` (200) | 9.6M | ~15.3K req/s | 15ms | 36ms | 79ms | 20초 폴링 기준 **~30만 명** 동시 대기 |
-| **합계** | **9.7M** | **~15.5K req/s** | | | | |
+| `POST /api/queues/tokens` | 132K | ~221 req/s | 462ms | 1.18s | 2.50s | 1분에 ~1.3만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` (200) | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 20초 폴링 기준 **~37만 명** 동시 대기 |
+| **합계** | **11.7M** | **~18.5K req/s** | | | | |
 
 #### 시스템 리소스
 
 | 지표 | 값 | 비고 |
 |------|-----|------|
-| Tomcat Threads | 200 | max 풀 사용 |
-| Process CPU | 36% | 앱 자체는 여유 |
-| System CPU | 83% | k6와 CPU 경합 (병목) |
-| JVM Heap | 589MB (avg) / 879MB (peak) | 여유 |
+| Virtual Threads | 요청당 생성·소멸 (~18.5K/s) | Carrier thread 46개 위에서 동작 |
+| Process CPU | 36% (avg) / 44% (peak) | 앱 자체는 여유 |
+| System CPU | 78% (avg) / 90% (peak) | k6와 CPU 경합 (병목) |
+| JVM Heap | 3.1GB (avg) / 3.9GB (peak) | max 9GB, 여유 |
 
 #### Redis
 
 | 명령 | p95 | p99 | p99.9 | 용도 |
 |------|-----|-----|-------|------|
-| ZADD | 3.6ms | 5.1ms | 24ms | 대기열 진입 + heartbeat 갱신 |
-| ZRANK | 3.6ms | 5.1ms | 24ms | 순번 조회 |
-| EXISTS | 3.8ms | 5.3ms | 27ms | active 토큰 확인 |
-| ZRANGEBYSCORE | 2.8ms | 3.0ms | 3.1ms | 잠수 유저 탐색 |
-| ZREM | 5.3ms | 5.5ms | 5.6ms | 잠수 유저 제거 |
-| **전체** | | | | **~47K ops/s** |
+| ZADD | 57ms | 103ms | 505ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | 45ms | 110ms | 507ms | 순번 조회 |
+| EXISTS | 48ms | 117ms | 490ms | active 토큰 확인 |
+| ZRANGEBYSCORE | 32ms | 33ms | 34ms | 잠수 유저 탐색 |
+| ZREM | 39ms | 39ms | 39ms | 잠수 유저 제거 |
+| **전체** | | | | **~60K ops/s** |
 
-단일 인스턴스, 기본 설정(Tomcat 200 스레드) 기준입니다. 병목은 System CPU 83% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
+단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 앱 + k6 + Docker(Redis, MySQL, Prometheus, Grafana)를 동시에 실행한 환경. 병목은 System CPU 64% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
 
 ---
 
@@ -660,7 +660,6 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | HTTP Response Time (p99) | 상위 1% 응답 시간 |
 | HTTP Response Time (p99.9) | 상위 0.1% 응답 시간 |
 | HTTP Error Rate | 4xx/5xx 비율 |
-| Tomcat Threads | busy/current/max 스레드 수 |
 | HikariCP Connections | DB 커넥션풀 active/idle/pending |
 | HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
 | JVM Heap Memory | 힙 메모리 사용량 |
@@ -671,6 +670,9 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | Redis Latency (p95) | 상위 5% 명령 응답 시간 |
 | Redis Latency (p99) | 상위 1% 명령 응답 시간 |
 | Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
+| HikariCP Connection Timeout | 커넥션 획득 타임아웃 (VT 환경 핵심 오류 지표) |
+| HikariCP Pool 포화도 | active/max 사용률 + pending 대기 수 |
+| Logback Error/Warn Events | 애플리케이션 에러/경고 발생률 |
 
 ### Actuator 엔드포인트
 

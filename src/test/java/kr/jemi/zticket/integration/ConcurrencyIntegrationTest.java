@@ -47,7 +47,7 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
                 .toList();
         tokens.forEach(t -> activeUserPort.activate(t, 300));
 
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         CountDownLatch readyLatch = new CountDownLatch(threadCount);
         CountDownLatch startLatch = new CountDownLatch(1);
         AtomicInteger successCount = new AtomicInteger(0);

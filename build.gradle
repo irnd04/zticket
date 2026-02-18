@@ -39,6 +39,11 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+tasks.withType(JavaExec).configureEach {
+    jvmArgs '-Djdk.tracePinnedThreads=short'
+}
+
 tasks.named('test') {
     useJUnitPlatform()
+    jvmArgs '-Djdk.tracePinnedThreads=short'
 }
