@@ -55,7 +55,7 @@ class QueueServiceTest {
         @DisplayName("UUID를 생성하고 대기열에 등록 후 순번을 반환한다")
         void shouldEnqueueAndReturnRank() {
             // given
-            given(seatService.getAvailableCount()).willReturn(10L);
+            given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueuePort.enqueue(anyString())).willReturn(1L);
 
             // when
@@ -71,7 +71,7 @@ class QueueServiceTest {
         @DisplayName("여러 번 enter()하면 매번 다른 UUID가 생성된다")
         void shouldGenerateUniqueUuids() {
             // given
-            given(seatService.getAvailableCount()).willReturn(10L);
+            given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueuePort.enqueue(anyString())).willReturn(1L, 2L);
 
             // when
@@ -86,7 +86,7 @@ class QueueServiceTest {
         @DisplayName("매진 시 SOLD_OUT 예외를 던진다")
         void shouldThrowWhenSoldOut() {
             // given
-            given(seatService.getAvailableCount()).willReturn(0L);
+            given(seatService.getAvailableCount()).willReturn(0);
 
             // when & then
             assertThatThrownBy(() -> queueService.enter())
@@ -119,7 +119,7 @@ class QueueServiceTest {
         void shouldReturnWaitingStatus() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
-            given(seatService.getAvailableCount()).willReturn(10L);
+            given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
 
             // when
@@ -135,7 +135,7 @@ class QueueServiceTest {
         void shouldRefreshScoreForWaitingUser() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
-            given(seatService.getAvailableCount()).willReturn(10L);
+            given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueuePort.getRank("uuid-1")).willReturn(42L);
 
             // when
@@ -150,7 +150,7 @@ class QueueServiceTest {
         void shouldThrowWhenTokenNotFound() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
-            given(seatService.getAvailableCount()).willReturn(10L);
+            given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueuePort.getRank("uuid-1")).willReturn(null);
 
             // when & then
@@ -164,7 +164,7 @@ class QueueServiceTest {
         void shouldReturnSoldOutWhenNoSeatsAvailable() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
-            given(seatService.getAvailableCount()).willReturn(0L);
+            given(seatService.getAvailableCount()).willReturn(0);
 
             // when
             QueueToken token = queueService.getQueueToken("uuid-1");
@@ -196,8 +196,8 @@ class QueueServiceTest {
         void shouldExecuteThreePhasesInOrder() {
             // given
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
-            given(activeUserPort.countActive()).willReturn(0L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(0);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             given(waitingQueuePort.peekBatch(MAX_ACTIVE_USERS)).willReturn(candidates);
 
             // when
@@ -219,8 +219,8 @@ class QueueServiceTest {
             // 핵심: peek은 삭제하지 않으므로 crash 시 유실 없음
             // activate 후에야 remove하므로 "큐에서 빠졌는데 active 안 된" 상태 불가
             List<String> candidates = List.of("uuid-1");
-            given(activeUserPort.countActive()).willReturn(0L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(0);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             given(waitingQueuePort.peekBatch(anyInt())).willReturn(candidates);
 
             // when
@@ -241,7 +241,7 @@ class QueueServiceTest {
         @DisplayName("maxActiveUsers에 도달하면 입장시키지 않는다")
         void shouldNotAdmitWhenMaxActiveReached() {
             // given - 이미 500명(=MAX_ACTIVE_USERS) active
-            given(activeUserPort.countActive()).willReturn(500L);
+            given(activeUserPort.countActive()).willReturn(500);
 
             // when
             queueService.admitBatch();
@@ -255,8 +255,8 @@ class QueueServiceTest {
         @DisplayName("빈 슬롯 수만큼만 입장시킨다")
         void shouldAdmitOnlyAvailableSlots() {
             // given - 현재 480명 active → 빈 슬롯 20개
-            given(activeUserPort.countActive()).willReturn(480L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(480);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             List<String> candidates = List.of("uuid-1", "uuid-2");
             given(waitingQueuePort.peekBatch(20)).willReturn(candidates);
 
@@ -271,7 +271,7 @@ class QueueServiceTest {
         @DisplayName("maxActiveUsers를 초과하면 toAdmit이 0이 된다")
         void shouldHandleOverCapacity() {
             // given - active가 maxActiveUsers를 초과한 경우 (이론적으로 가능: TTL 보정 전)
-            given(activeUserPort.countActive()).willReturn(510L);
+            given(activeUserPort.countActive()).willReturn(510);
 
             // when
             queueService.admitBatch();
@@ -289,8 +289,8 @@ class QueueServiceTest {
         @DisplayName("admitBatch 시 heartbeat 만료 유저를 먼저 제거한다")
         void shouldRemoveExpiredBeforeAdmitting() {
             // given
-            given(activeUserPort.countActive()).willReturn(0L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(0);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             given(waitingQueuePort.peekBatch(anyInt())).willReturn(List.of("uuid-1"));
 
             // when
@@ -306,7 +306,7 @@ class QueueServiceTest {
         @DisplayName("슬롯이 없어도 유령 유저는 제거한다")
         void shouldRemoveExpiredEvenWhenNoSlots() {
             // given - active가 꽉 차있음
-            given(activeUserPort.countActive()).willReturn(500L);
+            given(activeUserPort.countActive()).willReturn(500);
 
             // when
             queueService.admitBatch();
@@ -326,8 +326,8 @@ class QueueServiceTest {
         @DisplayName("대기열이 비어있으면 activate와 remove를 실행하지 않는다")
         void shouldDoNothingWhenQueueIsEmpty() {
             // given
-            given(activeUserPort.countActive()).willReturn(0L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(0);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             given(waitingQueuePort.peekBatch(MAX_ACTIVE_USERS)).willReturn(List.of());
 
             // when
@@ -352,13 +352,13 @@ class QueueServiceTest {
             // 2주기: 빈 슬롯 10개 → 새 유저 10명 입장
 
             // 1주기
-            given(activeUserPort.countActive()).willReturn(500L);
+            given(activeUserPort.countActive()).willReturn(500);
             queueService.admitBatch();
             then(waitingQueuePort).should(never()).peekBatch(anyInt());
 
             // 2주기 - TTL 만료로 active 감소
-            given(activeUserPort.countActive()).willReturn(490L);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000L);
+            given(activeUserPort.countActive()).willReturn(490);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
             given(waitingQueuePort.peekBatch(10)).willReturn(
                     List.of("new-1", "new-2", "new-3"));
 

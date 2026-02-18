@@ -31,13 +31,13 @@ public class SeatService implements GetSeatsUseCase {
     }
 
     @Cacheable("availableCount")
-    public long getAvailableCount() {
+    public int getAvailableCount() {
         return getAvailableCountNoCache();
     }
 
-    public long getAvailableCountNoCache() {
+    public int getAvailableCountNoCache() {
         Seats statuses = getSeats(null);
-        return statuses.seatNumbers().stream()
+        return (int) statuses.seatNumbers().stream()
             .filter(seat -> statuses.of(seat).isAvailableFor(null))
             .count();
     }

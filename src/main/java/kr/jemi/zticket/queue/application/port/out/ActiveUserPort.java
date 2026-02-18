@@ -8,5 +8,5 @@ public interface ActiveUserPort {
 
     boolean isActive(String uuid);
 
-    long countActive();
+    int countActive();
 }

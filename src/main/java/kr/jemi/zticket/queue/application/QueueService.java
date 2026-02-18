@@ -71,12 +71,12 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
         // 현재 active 유저 수를 확인하고 빈 슬롯만큼만 입장
-        long currentActive = activeUserPort.countActive();
-        int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
+        int currentActive = activeUserPort.countActive();
+        int availableSlots = Math.max(0, maxActiveUsers - currentActive);
 
-        // 잔여 좌석보다 많이 입장시켜도 의미 없음
-        int remainingSeats = (int) seatService.getAvailableCountNoCache();
-        int toAdmit = Math.min(availableSlots, remainingSeats);
+        // active 유저가 구매할 좌석을 보수적으로 차감
+        int remainingSeats = seatService.getAvailableCountNoCache();
+        int toAdmit = Math.min(availableSlots, Math.max(0, remainingSeats - currentActive));
 
         if (toAdmit <= 0) {
             return;
