@@ -32,16 +32,13 @@ public class SeatService implements GetSeatsUseCase {
 
     @Cacheable("availableCount")
     public long getAvailableCount() {
-        Seats statuses = getSeats(null);
-        return statuses.seatNumbers().stream()
-                .filter(seat -> statuses.of(seat).isAvailableFor(null))
-                .count();
+        return getAvailableCountNoCache();
     }
 
     public long getAvailableCountNoCache() {
         Seats statuses = getSeats(null);
         return statuses.seatNumbers().stream()
-                .filter(seat -> statuses.of(seat).isAvailableFor(null))
-                .count();
+            .filter(seat -> statuses.of(seat).isAvailableFor(null))
+            .count();
     }
 }

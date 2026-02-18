@@ -67,7 +67,7 @@ zticket:
   admission:
     interval-ms: 20000
     active-ttl-seconds: 300
-    max-active-users: 2000
+    max-active-users: ${zticket.seat.total-count}
     queue-ttl-seconds: 120
   seat:
     total-count: 1000
