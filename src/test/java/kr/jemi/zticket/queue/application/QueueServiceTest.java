@@ -131,7 +131,7 @@ class QueueServiceTest {
         }
 
         @Test
-        @DisplayName("대기 중인 유저의 score를 갱신한다 (유령 방지 heartbeat)")
+        @DisplayName("대기 중인 유저의 score를 갱신한다 (잠수 방지 heartbeat)")
         void shouldRefreshScoreForWaitingUser() {
             // given
             given(activeUserPort.isActive("uuid-1")).willReturn(false);
@@ -268,6 +268,38 @@ class QueueServiceTest {
         }
 
         @Test
+        @DisplayName("잔여 좌석에서 active 유저 수를 차감하여 입장 인원을 결정한다")
+        void shouldSubtractActiveUsersFromRemainingSeats() {
+            // given - 잔여 좌석 5개, active 3명 → 입장 가능 = 5 - 3 = 2명
+            given(activeUserPort.countActive()).willReturn(3);
+            given(seatService.getAvailableCountNoCache()).willReturn(5);
+            List<String> candidates = List.of("uuid-1", "uuid-2");
+            given(waitingQueuePort.peekBatch(2)).willReturn(candidates);
+
+            // when
+            queueService.admitBatch();
+
+            // then - 잔여 좌석(5) - active(3) = 2명만 입장
+            then(waitingQueuePort).should().peekBatch(2);
+            then(activeUserPort).should().activate("uuid-1", ACTIVE_TTL_SECONDS);
+            then(activeUserPort).should().activate("uuid-2", ACTIVE_TTL_SECONDS);
+        }
+
+        @Test
+        @DisplayName("잔여 좌석이 active 유저 수 이하이면 입장시키지 않는다")
+        void shouldNotAdmitWhenRemainingSeatsLessThanActive() {
+            // given - 잔여 좌석 3개, active 5명 → 입장 가능 = max(0, 3 - 5) = 0명
+            given(activeUserPort.countActive()).willReturn(5);
+            given(seatService.getAvailableCountNoCache()).willReturn(3);
+
+            // when
+            queueService.admitBatch();
+
+            // then - 좌석 부족으로 입장 없음
+            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+        }
+
+        @Test
         @DisplayName("maxActiveUsers를 초과하면 toAdmit이 0이 된다")
         void shouldHandleOverCapacity() {
             // given - active가 maxActiveUsers를 초과한 경우 (이론적으로 가능: TTL 보정 전)
@@ -282,7 +314,7 @@ class QueueServiceTest {
     }
 
     @Nested
-    @DisplayName("admitBatch() - 유령 유저 제거")
+    @DisplayName("admitBatch() - 잠수 유저 제거")
     class AdmitBatchGhostRemoval {
 
         @Test
@@ -303,7 +335,7 @@ class QueueServiceTest {
         }
 
         @Test
-        @DisplayName("슬롯이 없어도 유령 유저는 제거한다")
+        @DisplayName("슬롯이 없어도 잠수 유저는 제거한다")
         void shouldRemoveExpiredEvenWhenNoSlots() {
             // given - active가 꽉 차있음
             given(activeUserPort.countActive()).willReturn(500);

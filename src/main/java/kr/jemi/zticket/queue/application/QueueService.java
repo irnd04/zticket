@@ -67,7 +67,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
 
     @Override
     public void admitBatch() {
-        // 폴링하지 않는 유령 유저 제거 (score < now - waitingTtl)
+        // 폴링하지 않는 잠수 유저 제거 (score < now - waitingTtl)
         waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
         // 현재 active 유저 수를 확인하고 빈 슬롯만큼만 입장
