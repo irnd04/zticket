@@ -7,6 +7,10 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 50
+      connection-timeout: 5000
 
   jpa:
     hibernate:

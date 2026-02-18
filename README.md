@@ -660,7 +660,6 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | HTTP Response Time (p99) | 상위 1% 응답 시간 |
 | HTTP Response Time (p99.9) | 상위 0.1% 응답 시간 |
 | HTTP Error Rate | 4xx/5xx 비율 |
-| HikariCP Connections | DB 커넥션풀 active/idle/pending |
 | HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
 | JVM Heap Memory | 힙 메모리 사용량 |
 | GC Pause Time | GC 멈춤 시간 |
@@ -671,7 +670,6 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 | Redis Latency (p99) | 상위 1% 명령 응답 시간 |
 | Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
 | HikariCP Connection Timeout | 커넥션 획득 타임아웃 (VT 환경 핵심 오류 지표) |
-| HikariCP Pool 포화도 | active/max 사용률 + pending 대기 수 |
 | Logback Error/Warn Events | 애플리케이션 에러/경고 발생률 |
 
 ### Actuator 엔드포인트
