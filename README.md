@@ -814,7 +814,7 @@ src/main/resources/templates/
 | POST | `/api/queues/tokens` | 대기열 진입, UUID 토큰 반환 | 없음 |
 | GET | `/api/queues/tokens/{uuid}` | 대기 순번/상태 조회 | 없음 |
 | GET | `/api/seats` | 전체 좌석 현황 조회 | 없음 |
-| GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 2초 TTL) | 없음 |
+| GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 20초 TTL) | 없음 |
 | POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
 
 ---
