@@ -23,6 +23,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     private final SeatService seatService;
     private final long activeTtlSeconds;
     private final int maxActiveUsers;
+    private final int batchSize;
     private final long queueTtlMs;
 
     public QueueService(WaitingQueuePort waitingQueuePort,
@@ -30,12 +31,14 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
                         SeatService seatService,
                         @Value("${zticket.admission.active-ttl-seconds}") long activeTtlSeconds,
                         @Value("${zticket.admission.max-active-users}") int maxActiveUsers,
+                        @Value("${zticket.admission.batch-size}") int batchSize,
                         @Value("${zticket.admission.queue-ttl-seconds}") long queueTtlSeconds) {
         this.waitingQueuePort = waitingQueuePort;
         this.activeUserPort = activeUserPort;
         this.seatService = seatService;
         this.activeTtlSeconds = activeTtlSeconds;
         this.maxActiveUsers = maxActiveUsers;
+        this.batchSize = batchSize;
         this.queueTtlMs = queueTtlSeconds * 1000;
     }
 
@@ -76,7 +79,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
 
         // active 유저가 구매할 좌석을 보수적으로 차감
         int remainingSeats = seatService.getAvailableCountNoCache();
-        int toAdmit = Math.min(availableSlots, Math.max(0, remainingSeats - currentActive));
+        int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - currentActive)));
 
         if (toAdmit <= 0) {
             return;

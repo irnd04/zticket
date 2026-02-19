@@ -38,13 +38,14 @@ class QueueServiceTest {
 
     private static final long ACTIVE_TTL_SECONDS = 300L;
     private static final int MAX_ACTIVE_USERS = 500;
+    private static final int BATCH_SIZE = 100;
     private static final long QUEUE_TTL_SECONDS = 180L;
 
     @BeforeEach
     void setUp() {
         queueService = new QueueService(
                 waitingQueuePort, activeUserPort, seatService,
-                ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS, QUEUE_TTL_SECONDS);
+                ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS, BATCH_SIZE, QUEUE_TTL_SECONDS);
     }
 
     @Nested
@@ -198,7 +199,7 @@ class QueueServiceTest {
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCountNoCache()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(MAX_ACTIVE_USERS)).willReturn(candidates);
+            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(candidates);
 
             // when
             queueService.admitBatch();
@@ -206,7 +207,7 @@ class QueueServiceTest {
             // then - 순서 검증: removeExpired → peek → activate(각각) → remove
             InOrder inOrder = inOrder(waitingQueuePort, activeUserPort);
             inOrder.verify(waitingQueuePort).removeExpired(anyLong());
-            inOrder.verify(waitingQueuePort).peekBatch(MAX_ACTIVE_USERS);
+            inOrder.verify(waitingQueuePort).peekBatch(BATCH_SIZE);
             inOrder.verify(activeUserPort).activate("uuid-1", ACTIVE_TTL_SECONDS);
             inOrder.verify(activeUserPort).activate("uuid-2", ACTIVE_TTL_SECONDS);
             inOrder.verify(activeUserPort).activate("uuid-3", ACTIVE_TTL_SECONDS);
@@ -314,6 +315,41 @@ class QueueServiceTest {
     }
 
     @Nested
+    @DisplayName("admitBatch() - batchSize 상한 제어")
+    class AdmitBatchSizeLimit {
+
+        @Test
+        @DisplayName("슬롯이 충분해도 batchSize를 초과하여 입장시키지 않는다")
+        void shouldNotExceedBatchSize() {
+            // given - active 0명, 잔여 좌석 1000개 → 슬롯 500개이지만 batchSize=100 제한
+            given(activeUserPort.countActive()).willReturn(0);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of("uuid-1"));
+
+            // when
+            queueService.admitBatch();
+
+            // then - peekBatch에 BATCH_SIZE(100)가 전달됨
+            then(waitingQueuePort).should().peekBatch(BATCH_SIZE);
+        }
+
+        @Test
+        @DisplayName("빈 슬롯이 batchSize보다 적으면 빈 슬롯만큼만 입장시킨다")
+        void shouldAdmitFewerThanBatchSizeWhenSlotsLimited() {
+            // given - active 470명 → 빈 슬롯 30개 < batchSize(100)
+            given(activeUserPort.countActive()).willReturn(470);
+            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(waitingQueuePort.peekBatch(30)).willReturn(List.of("uuid-1"));
+
+            // when
+            queueService.admitBatch();
+
+            // then - batchSize가 아닌 빈 슬롯(30)이 전달됨
+            then(waitingQueuePort).should().peekBatch(30);
+        }
+    }
+
+    @Nested
     @DisplayName("admitBatch() - 잠수 유저 제거")
     class AdmitBatchGhostRemoval {
 
@@ -360,7 +396,7 @@ class QueueServiceTest {
             // given
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCountNoCache()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(MAX_ACTIVE_USERS)).willReturn(List.of());
+            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of());
 
             // when
             queueService.admitBatch();

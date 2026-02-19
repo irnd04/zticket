@@ -138,7 +138,7 @@ sequenceDiagram
     Q->>R: SCAN active_user:* → 현재 active 수 확인
     R-->>Q: currentActive
 
-    Note over Q: toAdmit = min(입장 가능 인원, 잔여 좌석 - active 유저)
+    Note over Q: toAdmit = min(batchSize, 입장 가능 인원, 잔여 좌석 - active 유저)
 
     Q->>R: ZRANGE waiting_queue 0 (toAdmit-1)
     R-->>Q: [uuid1, uuid2, ...]
@@ -377,7 +377,7 @@ waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 long currentActive = activeUserPort.countActive();
 int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
 int remainingSeats = (int) seatService.getAvailableCountNoCache();
-int toAdmit = Math.min(availableSlots, Math.max(0, remainingSeats - (int) currentActive));  // active 유저가 구매할 좌석을 보수적으로 차감
+int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - (int) currentActive)));  // batchSize 상한 + active 유저 보수적 차감
 
 List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
 for (String uuid : candidates) {
@@ -386,7 +386,7 @@ for (String uuid : candidates) {
 waitingQueuePort.removeBatch(candidates);                         // 3. 큐에서 제거
 ```
 
-**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시킨다. 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
+**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 한 번에 대량 입장으로 인한 부하 급증을 방지하고, 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
 
 **active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
 
@@ -880,6 +880,7 @@ zticket:
     interval-ms: 5000       # 입장 스케줄러 실행 주기 (5초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 2000  # 동시 active 유저 상한
+    batch-size: 100         # 주기당 최대 입장 인원
     queue-ttl-seconds: 30   # 대기열 잠수 제거 기준 (30초간 폴링 없으면 제거)
   seat:
     total-count: 1000       # 총 좌석 수
