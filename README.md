@@ -166,7 +166,7 @@ sequenceDiagram
     Note right of R: remove: activate 후에야 큐에서 제거
 ```
 
-**removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
+**removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
 
 ### 3. 구매 플로우: DB PAID 저장까지
 
@@ -367,7 +367,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 **removeExpired → peek → activate → remove 4단계 분리**:
 
 - **removeExpired**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거. 이후 peek이 단순해진다.
-- **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
+- **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만.
 - **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
 - **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
 
@@ -377,7 +377,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 |------|------|--------|------|
 | 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 5초마다 |
 | 잠수 제거 | ZREM × 2 | O(M log N) | 5초마다 |
-| active 카운트 | SCAN | O(N) | 5초마다 |
+| active 카운트 | SCAN | O(전체 키 수) | 5초마다 |
 | peek | ZRANGE | O(K log N) | 5초마다 |
 | remove | ZREM × 2 | O(K log N) | 5초마다 |
 
