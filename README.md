@@ -315,11 +315,9 @@ end
 
 ---
 
-### 3. 대기열 입장: 잠수 제거 → peek → activate → remove
+### 3. 잠수 유저 제거 (Sorted Set 기반)
 
-#### 잠수 유저 제거 (Sorted Set 기반)
-
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다.
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다. `ExpiredQueueCleanupScheduler`(30초 주기)에서 독립 실행된다.
 
 ```
 waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
@@ -352,9 +350,11 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 
 100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
 
-#### 입장 후 잠수 유저
+**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
 
-입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
+---
+
+### 4. 대기열 입장: peek → activate → remove
 
 #### 입장 제어 (admitBatch)
 
@@ -371,7 +371,7 @@ activeUserPort.activateBatch(candidates, activeTtlSeconds);              // 2. �
 waitingQueuePort.removeBatch(candidates);                                // 3. 큐에서 제거
 ```
 
-잠수 유저 제거(`removeExpired`)는 별도 스케줄러(`ExpiredQueueCleanupScheduler`, 30초 주기)에서 독립 실행됩니다. `peekBatch`는 `ZRANGEBYSCORE`로 heartbeat cutoff를 적용하므로, 제거 스케줄러와 입장 스케줄러의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
+`peekBatch`는 `ZRANGEBYSCORE`로 heartbeat cutoff를 적용하므로, 잠수 유저 제거 스케줄러(30초)와 입장 스케줄러(5초)의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
 
 **입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 한 번에 대량 입장으로 인한 부하 급증을 방지하고, 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
 
