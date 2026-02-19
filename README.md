@@ -281,12 +281,6 @@ flowchart TD
 - 구매와 동기화는 완료된 상태이며, active 슬롯만 5분간 불필요하게 점유됩니다.
 - `active_user` 키에 TTL(5분)이 걸려 있어 별도 처리 없이 자동 만료됩니다.
 
-#### 핵심 불변식
-
-- `동기화 배치 주기(1분) < hold TTL(5분)` → TTL 만료 전에 동기화가 완료됩니다.
-- **DB `seat_number UNIQUE`가 최종 방어선**: Redis 레이어에서 어떤 장애(TTL 만료, GC Pause, 네트워크 파티션)가 발생하더라도, DB의 유니크 제약이 동일 좌석에 대한 중복 판매를 원천 차단합니다.
-- **동기화 배치가 Redis를 DB 기준으로 복원**: DB PAID가 Source of Truth이므로, Redis에 어떤 잘못된 상태(다른 사용자의 held, 키 삭제 등)가 남아있어도 동기화 배치가 DB 기준으로 덮어써서 정합성을 회복합니다.
-
 ---
 
 ### 2. 좌석 선점과 해제
@@ -874,7 +868,7 @@ zticket:
   admission:
     interval-ms: 5000       # 입장 스케줄러 실행 주기 (5초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
-    max-active-users: 2000  # 동시 active 유저 상한
+    max-active-users: ${zticket.seat.total-count}  # 동시 active 유저 상한 (= 총 좌석 수)
     batch-size: 100         # 주기당 최대 입장 인원
     queue-ttl-seconds: 30   # 대기열 잠수 제거 기준 (30초간 폴링 없으면 제거)
     cleanup-interval-ms: 30000 # 잠수 유저 제거 스케줄러 주기 (30초)
