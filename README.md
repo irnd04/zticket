@@ -87,7 +87,7 @@ sequenceDiagram
     R-->>Q: rank
     Q-->>U: { uuid, rank }
 
-    loop 20초 폴링
+    loop 5초 폴링
         U->>Q: GET /api/queues/tokens/{uuid}
         alt active_user:{uuid} 존재
             Q-->>U: ACTIVE → 좌석 선택 페이지로 이동
@@ -112,7 +112,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[AdmissionScheduler 매 20초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 2분 이상 지난 유저 조회"]
+    A[AdmissionScheduler 매 5초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat<br/>→ 마지막 폴링이 30초 이상 지난 유저 조회"]
     B --> C{잠수 유저 있음?}
     C -- 없음 --> END[입장 처리로 진행]
     C -- 있음 --> D[ZREM waiting_queue 에서 제거]
@@ -127,7 +127,7 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant S as AdmissionScheduler<br/>(매 20초)
+    participant S as AdmissionScheduler<br/>(매 5초)
     participant Q as QueueService
     participant R as Redis
 
@@ -355,12 +355,12 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 연산 | 명령 | 시간 복잡도 | 빈도 |
 |------|------|--------|------|
 | 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
-| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 20초마다 |
+| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
 | 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 스케줄러 주기마다 |
 | 잠수 제거 | ZREM × 2 | O(M log N) | 스케줄러 주기마다 |
-| rank 조회 | ZRANK | O(log N) | 유저당 20초마다 |
+| rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
 
-100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 20초마다 1회이므로, 대기자 10만 명이면 ~5,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
 
 #### 입장 후 잠수 유저
 
@@ -484,13 +484,13 @@ public Ticket save(Ticket ticket) {
 #### 선택: Redis Sorted Set (`ZADD`, `ZRANK`, `ZRANGE + ZREM`)
 
 **채택 이유**:
-- **실시간 순번 조회**: `ZRANK`는 O(log N)으로 즉시 현재 순번을 반환합니다. 클라이언트가 20초마다 폴링할 때 "현재 347번째"를 바로 응답할 수 있습니다. Kafka에서는 consumer offset으로 순번을 계산하는 것이 불가능에 가깝습니다.
+- **실시간 순번 조회**: `ZRANK`는 O(log N)으로 즉시 현재 순번을 반환합니다. 클라이언트가 5초마다 폴링할 때 "현재 347번째"를 바로 응답할 수 있습니다. Kafka에서는 consumer offset으로 순번을 계산하는 것이 불가능에 가깝습니다.
 - **배치 입장의 단순성**: `ZRANGE(0, 59)` + `ZREM`으로 상위 60명을 원자적으로 추출합니다.
 - **인프라 단순성**: 이미 좌석 선점용으로 Redis를 사용하므로, 별도 인프라를 추가하지 않습니다.
 
 **트레이드오프**:
-- **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 20초 폴링 = ~50만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
-  - **폴링 주기 늘리기**: 20초 → 120초로 변경하면 ~50만 → ~8만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장이 최대 2분까지 지연됩니다.
+- **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 5초 폴링 = ~200만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
+  - **폴링 주기 늘리기**: 5초 → 120초로 변경하면 ~200만 → ~8만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장이 최대 2분까지 지연됩니다.
   - **Redis Cluster 샤딩**: 처리량 자체를 수평 확장. 폴링 주기를 유지하면서 대규모 대기열을 처리할 수 있지만, 인프라 복잡도가 증가합니다.
 - **영속성 부재**: Redis는 인메모리 저장소이므로 장애 시 대기열 데이터가 유실됩니다. 다만 대기열은 공연 시작 전 잠깐 사용되는 일시적 데이터이므로, 장애 복구 후 사용자가 다시 줄을 서는 것이 자연스럽습니다.
 - **순서 보장 범위**: `System.currentTimeMillis()` 기반 score를 사용하므로, 같은 밀리초에 도착한 요청은 순서가 보장되지 않습니다. 다만 1ms 이내의 차이는 사람이 체감할 수 없는 수준이므로, 선착순 공정성에 실질적인 영향은 없습니다.
@@ -547,7 +547,7 @@ public Ticket save(Ticket ticket) {
 
 ### 5. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
-#### 선택: 20초 주기 HTTP 폴링
+#### 선택: 5초 주기 HTTP 폴링
 
 **WebSocket / SSE를 사용하지 않는 이유**:
 - **WebSocket**: 서버가 각 클라이언트와 상시 TCP 연결을 유지해야 합니다. 대기자 50만 명이면 50만 개의 커넥션이 동시에 열려있어야 하고, 로드밸런서에서 같은 클라이언트를 같은 서버로 라우팅하는 sticky session 설정이 필요합니다.
@@ -558,8 +558,8 @@ public Ticket save(Ticket ticket) {
 - **인프라 단순성**: 일반 REST API이므로 별도 설정 없이 모든 로드밸런서/CDN과 호환됩니다.
 
 **트레이드오프**:
-- **불필요한 요청**: 순번 변화가 없어도 20초마다 요청을 보냅니다. 대기자 50만 명 × 0.05 req/s = ~25,000 req/s.
-- **최대 20초 지연**: 입장이 허용된 직후부터 최대 20초 후에야 클라이언트가 인지합니다.
+- **불필요한 요청**: 순번 변화가 없어도 5초마다 요청을 보냅니다. 대기자 50만 명 × 0.2 req/s = ~100,000 req/s.
+- **최대 5초 지연**: 입장이 허용된 직후부터 최대 5초 후에야 클라이언트가 인지합니다.
 
 ### 6. 스레드 모델: Virtual Thread vs Platform Thread
 
@@ -597,7 +597,7 @@ VU 동시 시작 (각 VU 1회만 실행)
     │
     ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
     │
-    ├── 2. GET /api/queues/tokens/{uuid}   20초 폴링, ACTIVE까지 대기
+    ├── 2. GET /api/queues/tokens/{uuid}   5초 폴링, ACTIVE까지 대기
     │       (반복)
     │
     ├── 3. GET /api/seats                  빈 좌석 조회
@@ -642,7 +642,7 @@ k6 run k6/queue-stress.js &
 | 엔드포인트 | 요청 수 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|--------|-----|-----|-------|------|
 | `POST /api/queues/tokens` | 132K | ~221 req/s | 462ms | 1.18s | 2.50s | 1분에 ~1.3만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 20초 폴링 기준 **~37만 명** 동시 대기 |
+| `GET /api/queues/tokens/{uuid}` | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 5초 폴링 기준 **~9만 명** 동시 대기 |
 | **합계** | **11.7M** | **~18.5K req/s** | | | | |
 
 #### 시스템 리소스
@@ -753,7 +753,7 @@ kr.jemi.zticket
 │       │   │       ├── TokenResponse.java              진입 응답 (uuid)
 │       │   │       └── QueueStatusResponse.java        폴링 응답 (status, rank)
 │       │   └── scheduler/
-│       │       └── AdmissionScheduler.java     20초 배치 입장 + 잠수 유저 제거
+│       │       └── AdmissionScheduler.java     5초 배치 입장 + 잠수 유저 제거
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
@@ -841,7 +841,7 @@ queue  → (독립)
 ```
 src/main/resources/templates/
 ├── index.html              메인 (대기열 진입 버튼)
-├── queue.html              대기열 (순번 표시, 20초 폴링, ACTIVE 시 자동 이동)
+├── queue.html              대기열 (순번 표시, 5초 폴링, ACTIVE 시 자동 이동)
 ├── purchase.html           좌석 선택 + 구매 (1000석, 50×20 그리드, A1~AX20)
 └── confirmation.html       구매 결과 (성공/실패)
 ```
@@ -877,10 +877,10 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    interval-ms: 20000      # 입장 스케줄러 실행 주기 (20초)
+    interval-ms: 5000       # 입장 스케줄러 실행 주기 (5초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: 2000  # 동시 active 유저 상한
-    queue-ttl-seconds: 120  # 대기열 잠수 제거 기준 (2분간 폴링 없으면 제거)
+    queue-ttl-seconds: 30   # 대기열 잠수 제거 기준 (30초간 폴링 없으면 제거)
   seat:
     total-count: 1000       # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
