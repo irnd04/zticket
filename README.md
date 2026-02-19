@@ -106,6 +106,16 @@ sequenceDiagram
 - **폴링 시**: `waiting_queue_heartbeat`의 score만 현재 시각으로 갱신 (순서를 유지하기 위해 `waiting_queue`는 건드리지 않음)
 - **SOLD_OUT 판정**: 잔여 좌석이 0이면 대기열 순번 조회 없이 즉시 SOLD_OUT 반환
 
+**시간복잡도** (N = 대기열 인원):
+
+| 연산 | 명령 | 시간 복잡도 | 빈도 |
+|------|------|--------|------|
+| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
+| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
+| rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
+
+100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+
 ### 2. 잠수 유저 제거 플로우
 
 대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거합니다. 입장 스케줄러(5초)와 별도로 `ExpiredQueueCleanupScheduler`(30초)에서 독립 실행됩니다.
@@ -315,9 +325,9 @@ end
 
 ---
 
-### 3. 잠수 유저 제거 (Sorted Set 기반)
+### 3. 대기열 관리: 잠수 제거 + 입장
 
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다. `ExpiredQueueCleanupScheduler`(30초 주기)에서 독립 실행된다.
+대기열은 Sorted Set 2개로 관리한다.
 
 ```
 waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
@@ -330,60 +340,48 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 |------|--------------|------------------------|
 | 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
 | 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
-| 잠수 제거 (`ExpiredQueueCleanupScheduler`) | ZREM | ZRANGEBYSCORE + ZREM |
-| 입장 (`AdmissionScheduler`) | ZREM | ZREM |
+| 잠수 제거 (`ExpiredQueueCleanupScheduler`, 30초) | ZREM | ZRANGEBYSCORE + ZREM |
+| 입장 (`AdmissionScheduler`, 5초) | ZREM | ZRANGEBYSCORE + ZREM |
 
 **왜 Sorted Set 2개?**
 - `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
 - 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
 - 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
 
+#### 잠수 유저 제거
+
+대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다. `ExpiredQueueCleanupScheduler`(30초 주기)에서 독립 실행된다.
+
 **시간복잡도** (N = 대기열 인원, M = 제거 대상 수):
 
 | 연산 | 명령 | 시간 복잡도 | 빈도 |
 |------|------|--------|------|
-| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
-| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
-| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 30초마다 (별도 스케줄러) |
-| 잠수 제거 | ZREM × 2 | O(M log N) | 30초마다 (별도 스케줄러) |
-| rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
-
-100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
+| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 30초마다 |
+| 잠수 제거 | ZREM × 2 | O(M log N) | 30초마다 |
 
 **입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
 
----
+#### 입장 제어 (peek → activate → remove)
 
-### 4. 대기열 입장: peek → activate → remove
-
-#### 입장 제어 (admitBatch)
-
-```java
-// QueueService.java
-int currentActive = activeUserPort.countActive();
-int availableSlots = Math.max(0, maxActiveUsers - currentActive);
-int remainingSeats = seatService.getAvailableCount();
-int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - currentActive)));  // batchSize 상한 + active 유저 보수적 차감
-
-long cutoff = System.currentTimeMillis() - queueTtlMs;
-List<String> candidates = waitingQueuePort.peekBatch(toAdmit, cutoff);  // 1. heartbeat 살아있는 유저만 조회 (삭제 안 함)
-activeUserPort.activateBatch(candidates, activeTtlSeconds);              // 2. 파이프라이닝으로 일괄 activate
-waitingQueuePort.removeBatch(candidates);                                // 3. 큐에서 제거
-```
+`AdmissionScheduler`(5초 주기)에서 실행된다. 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
 
 `peekBatch`는 `ZRANGEBYSCORE`로 heartbeat cutoff를 적용하므로, 잠수 유저 제거 스케줄러(30초)와 입장 스케줄러(5초)의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
 
-**입장 제어**: 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 한 번에 대량 입장으로 인한 부하 급증을 방지하고, 잠수 유저가 TTL 만료로 빠지면 그만큼 다음 주기에 새 유저가 들어온다.
-
 **active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
-
-키스페이스가 수만 개 이상이면 `SCAN`도 부담이 된다. Sorted Set(score=만료 시각)으로 바꾸면 `ZCARD` O(1)로 카운트 가능. 단, TTL 자동 만료 대신 만료 시각을 직접 관리해야 한다.
 
 **peek → activate → remove 3단계 분리**:
 
 - **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
 - **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
 - **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
+
+**시간복잡도** (N = 대기열 인원, K = 입장 인원):
+
+| 연산 | 명령 | 시간 복잡도 | 빈도 | 비고 |
+|------|------|--------|------|------|
+| active 카운트 | SCAN | O(N) | 5초마다 | 키스페이스가 커지면 Sorted Set(`ZCARD` O(1))으로 전환 필요 |
+| peek | ZRANGEBYSCORE + LIMIT | O(log N + K) | 5초마다 | |
+| remove | ZREM × 2 | O(K log N) | 5초마다 | |
 
 ---
 
@@ -563,7 +561,7 @@ public Ticket save(Ticket ticket) {
 
 **주의사항**:
 - **ThreadLocal 남용 금지**: VT는 요청마다 생성·소멸되므로 platform thread처럼 ThreadLocal이 누수되지는 않습니다. 하지만 VT가 수만 개 동시에 존재하면 ThreadLocal 인스턴스도 수만 개가 생성되어 순간 메모리 사용량이 증가합니다. 가능하면 `ScopedValue`(Java 25~)로 대체하는 것이 권장됩니다.
-- **pinning 해결 (JEP 491)**: Java 24부터 `synchronized` 블록 내에서 블로킹해도 VT가 carrier thread에 고정(pinning)되지 않습니다. Java 25에서는 이 문제가 완전히 해결되어 `ReentrantLock`으로 대체할 필요가 없습니다. 참고로 `-Djdk.tracePinnedThreads=short`를 적용하면 혹시 모를 pinning을 감지할 수 있습니다.
+- **pinning 해결 (JEP 491)**: Java 24부터 `synchronized` 블록 내에서 블로킹해도 VT가 carrier thread에 고정(pinning)되지 않으므로 `ReentrantLock`으로 대체할 필요가 없습니다. pinning 자체가 발생하지 않으므로 `-Djdk.tracePinnedThreads=short` 옵션도 더 이상 지원되지 않습니다.
 
 ---
 
