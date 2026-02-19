@@ -624,33 +624,34 @@ k6 run k6/queue-stress.js &
 
 #### HTTP
 
-| 엔드포인트 | 요청 수 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
-|-----------|--------|--------|-----|-----|-------|------|
-| `POST /api/queues/tokens` | 132K | ~221 req/s | 462ms | 1.18s | 2.50s | 1분에 ~1.3만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | 11.6M | ~18.3K req/s | 437ms | 1.20s | 2.92s | 5초 폴링 기준 **~9만 명** 동시 대기 |
-| **합계** | **11.7M** | **~18.5K req/s** | | | | |
+| 엔드포인트 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
+|-----------|--------|-----|-----|-------|------|
+| `POST /api/queues/tokens` | ~259 req/s | 307ms | 401ms | 508ms | 1분에 ~1.5만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` | ~22.9K req/s | 306ms | 406ms | 514ms | 5초 폴링 기준 **~11만 명** 동시 대기 |
+| **합계** | **~23.2K req/s** | | | | |
 
 #### 시스템 리소스
 
 | 지표 | 값 | 비고 |
 |------|-----|------|
-| Virtual Threads | 요청당 생성·소멸 (~18.5K/s) | Carrier thread 46개 위에서 동작 |
-| Process CPU | 36% (avg) / 44% (peak) | 앱 자체는 여유 |
-| System CPU | 78% (avg) / 90% (peak) | k6와 CPU 경합 (병목) |
-| JVM Heap | 3.1GB (avg) / 3.9GB (peak) | max 9GB, 여유 |
+| Virtual Threads | 요청당 생성·소멸 (~23.2K/s) | Carrier thread 위에서 동작 |
+| Process CPU | ~34% | 앱 자체는 여유 |
+| System CPU | ~89% | k6와 CPU 경합 (병목) |
+| JVM Heap | ~4.1GB | max 9GB, 여유 |
 
 #### Redis
 
-| 명령 | p95 | p99 | p99.9 | 용도 |
-|------|-----|-----|-------|------|
-| ZADD | 57ms | 103ms | 505ms | 대기열 진입 + heartbeat 갱신 |
-| ZRANK | 45ms | 110ms | 507ms | 순번 조회 |
-| EXISTS | 48ms | 117ms | 490ms | active 토큰 확인 |
-| ZRANGEBYSCORE | 32ms | 33ms | 34ms | 잠수 유저 탐색 |
-| ZREM | 39ms | 39ms | 39ms | 잠수 유저 제거 |
-| **전체** | | | | **~60K ops/s** |
+| 명령 | ops/s | p95 | p99 | p99.9 | 용도 |
+|------|-------|-----|-----|-------|------|
+| ZADD | ~23.7K | 58ms | 89ms | 208ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | ~23.4K | 56ms | 86ms | 153ms | 순번 조회 |
+| EXISTS | ~23.1K | 56ms | 88ms | 156ms | active 토큰 확인 |
+| SCAN | ~0.2 | 84ms | 88ms | 89ms | active 유저 카운트 |
+| ZRANGEBYSCORE | ~0.1 | 60ms | 61ms | 61ms | 잠수 유저 탐색 + 입장 peek |
+| ZREM | ~0.2 | 65ms | 67ms | 67ms | 잠수 유저 제거 + 입장 remove |
+| **전체** | **~70K** | | | | |
 
-단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 앱 + k6 + Docker(Redis, MySQL, Prometheus, Grafana)를 동시에 실행한 환경. 병목은 System CPU 64% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
+병목은 System CPU ~89% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
 
 ---
 
