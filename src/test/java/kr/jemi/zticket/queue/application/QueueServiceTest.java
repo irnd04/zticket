@@ -346,7 +346,7 @@ class QueueServiceTest {
     }
 
     @Nested
-    @DisplayName("removeExpired() - 잠수 유저 제거 (별도 스케줄러)")
+    @DisplayName("removeExpired() - 잠수 유저 제거")
     class RemoveExpired {
 
         @Test

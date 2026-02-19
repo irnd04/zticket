@@ -75,7 +75,7 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
         long totalRemoved = 0;
         while (true) {
             Set<String> batch = redisTemplate.opsForZSet()
-                    .rangeByScore(HEARTBEAT_KEY, 0, cutoffTimestamp, 0, EXPIRE_BATCH_SIZE);
+                    .rangeByScore(HEARTBEAT_KEY, Double.NEGATIVE_INFINITY, cutoffTimestamp, 0, EXPIRE_BATCH_SIZE);
             if (batch == null || batch.isEmpty()) {
                 break;
             }
