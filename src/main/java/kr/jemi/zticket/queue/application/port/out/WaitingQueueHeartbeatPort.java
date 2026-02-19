@@ -4,8 +4,6 @@ import java.util.List;
 
 public interface WaitingQueueHeartbeatPort {
 
-    void register(String uuid);
-
     void refresh(String uuid);
 
     List<Long> getScores(List<String> uuids);

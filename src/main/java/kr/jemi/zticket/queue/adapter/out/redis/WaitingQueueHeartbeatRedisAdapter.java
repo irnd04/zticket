@@ -22,11 +22,6 @@ public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatP
     }
 
     @Override
-    public void register(String uuid) {
-        redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
-    }
-
-    @Override
     public void refresh(String uuid) {
         redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
     }

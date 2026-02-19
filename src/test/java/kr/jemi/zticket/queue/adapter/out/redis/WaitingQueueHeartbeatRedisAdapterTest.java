@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
 
     @Autowired
-    WaitingQueueHeartbeatPort heartbeatPort;
+    WaitingQueueHeartbeatPort waitingQueueHeartbeatPort;
 
     @Autowired
     StringRedisTemplate redisTemplate;
@@ -22,9 +22,9 @@ class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
     @Test
     @DisplayName("getScores는 heartbeat이 없는 유저에 대해 null을 반환한다")
     void getScores_returns_null_for_missing() {
-        heartbeatPort.register("uuid-1");
+        waitingQueueHeartbeatPort.refresh("uuid-1");
 
-        List<Long> scores = heartbeatPort.getScores(List.of("uuid-1", "uuid-2"));
+        List<Long> scores = waitingQueueHeartbeatPort.getScores(List.of("uuid-1", "uuid-2"));
 
         assertThat(scores).hasSize(2);
         assertThat(scores.get(0)).isNotNull();
@@ -34,16 +34,16 @@ class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
     @Test
     @DisplayName("findExpired는 cutoff 이후에 갱신된 유저는 반환하지 않는다")
     void findExpired_excludes_refreshed_after_cutoff() throws InterruptedException {
-        heartbeatPort.register("uuid-1");
-        heartbeatPort.register("uuid-2");
-        heartbeatPort.register("uuid-3");
+        waitingQueueHeartbeatPort.refresh("uuid-1");
+        waitingQueueHeartbeatPort.refresh("uuid-2");
+        waitingQueueHeartbeatPort.refresh("uuid-3");
 
         Thread.sleep(2);
         long cutoff = System.currentTimeMillis() - 1;
 
-        heartbeatPort.refresh("uuid-3");
+        waitingQueueHeartbeatPort.refresh("uuid-3");
 
-        List<String> expired = heartbeatPort.findExpired(cutoff);
+        List<String> expired = waitingQueueHeartbeatPort.findExpired(cutoff);
 
         assertThat(expired).containsExactlyInAnyOrder("uuid-1", "uuid-2");
         assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-1")).isNull();
@@ -54,9 +54,9 @@ class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
     @Test
     @DisplayName("findExpired는 만료 유저가 없으면 빈 리스트를 반환한다")
     void findExpired_returns_empty_when_none_expired() {
-        heartbeatPort.register("uuid-1");
+        waitingQueueHeartbeatPort.refresh("uuid-1");
 
-        List<String> expired = heartbeatPort.findExpired(0);
+        List<String> expired = waitingQueueHeartbeatPort.findExpired(0);
 
         assertThat(expired).isEmpty();
     }

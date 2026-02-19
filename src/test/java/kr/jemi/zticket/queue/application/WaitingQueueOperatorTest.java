@@ -23,7 +23,7 @@ class WaitingQueueOperatorTest {
     private WaitingQueuePort waitingQueuePort;
 
     @Mock
-    private WaitingQueueHeartbeatPort heartbeatPort;
+    private WaitingQueueHeartbeatPort waitingQueueHeartbeatPort;
 
     private WaitingQueueOperator operator;
 
@@ -31,7 +31,7 @@ class WaitingQueueOperatorTest {
 
     @BeforeEach
     void setUp() {
-        operator = new WaitingQueueOperator(waitingQueuePort, heartbeatPort, QUEUE_TTL_SECONDS);
+        operator = new WaitingQueueOperator(waitingQueuePort, waitingQueueHeartbeatPort, QUEUE_TTL_SECONDS);
     }
 
     @Nested
@@ -50,7 +50,7 @@ class WaitingQueueOperatorTest {
             // then
             assertThat(rank).isEqualTo(5L);
             then(waitingQueuePort).should().enqueue("uuid-1");
-            then(heartbeatPort).should().register("uuid-1");
+            then(waitingQueueHeartbeatPort).should().refresh("uuid-1");
         }
 
         @Test
@@ -63,9 +63,9 @@ class WaitingQueueOperatorTest {
             operator.enqueue("uuid-1");
 
             // then
-            InOrder inOrder = inOrder(waitingQueuePort, heartbeatPort);
+            InOrder inOrder = inOrder(waitingQueuePort, waitingQueueHeartbeatPort);
             inOrder.verify(waitingQueuePort).enqueue("uuid-1");
-            inOrder.verify(heartbeatPort).register("uuid-1");
+            inOrder.verify(waitingQueueHeartbeatPort).refresh("uuid-1");
         }
     }
 
@@ -78,7 +78,7 @@ class WaitingQueueOperatorTest {
         void shouldReturnRankWhenAlive() {
             // given
             given(waitingQueuePort.getRank("uuid-1")).willReturn(10L);
-            given(heartbeatPort.getScores(List.of("uuid-1")))
+            given(waitingQueueHeartbeatPort.getScores(List.of("uuid-1")))
                     .willReturn(List.of(System.currentTimeMillis()));
 
             // when
@@ -99,7 +99,7 @@ class WaitingQueueOperatorTest {
 
             // then
             assertThat(rank).isNull();
-            then(heartbeatPort).should(never()).getScores(anyList());
+            then(waitingQueueHeartbeatPort).should(never()).getScores(anyList());
         }
 
         @Test
@@ -108,7 +108,7 @@ class WaitingQueueOperatorTest {
             // given
             given(waitingQueuePort.getRank("uuid-1")).willReturn(10L);
             long expiredScore = System.currentTimeMillis() - (QUEUE_TTL_SECONDS * 1000) - 1;
-            given(heartbeatPort.getScores(List.of("uuid-1")))
+            given(waitingQueueHeartbeatPort.getScores(List.of("uuid-1")))
                     .willReturn(List.of(expiredScore));
 
             // when
@@ -125,7 +125,7 @@ class WaitingQueueOperatorTest {
             given(waitingQueuePort.getRank("uuid-1")).willReturn(10L);
             List<Long> scores = new java.util.ArrayList<>();
             scores.add(null);
-            given(heartbeatPort.getScores(List.of("uuid-1"))).willReturn(scores);
+            given(waitingQueueHeartbeatPort.getScores(List.of("uuid-1"))).willReturn(scores);
 
             // when
             Long rank = operator.getRank("uuid-1");
@@ -140,13 +140,13 @@ class WaitingQueueOperatorTest {
     class Refresh {
 
         @Test
-        @DisplayName("heartbeatPort에 갱신을 위임한다")
+        @DisplayName("waitingQueueHeartbeatPort에 갱신을 위임한다")
         void shouldDelegateToWaitingQueueHeartbeatPort() {
             // when
             operator.refresh("uuid-1");
 
             // then
-            then(heartbeatPort).should().refresh("uuid-1");
+            then(waitingQueueHeartbeatPort).should().refresh("uuid-1");
         }
     }
 
@@ -162,7 +162,7 @@ class WaitingQueueOperatorTest {
             given(waitingQueuePort.peek(4)).willReturn(candidates);
             long now = System.currentTimeMillis();
             long expired = now - (QUEUE_TTL_SECONDS * 1000) - 1;
-            given(heartbeatPort.getScores(candidates))
+            given(waitingQueueHeartbeatPort.getScores(candidates))
                     .willReturn(List.of(now, expired, now, now));
 
             // when
@@ -184,7 +184,7 @@ class WaitingQueueOperatorTest {
 
             // then
             assertThat(result).isEmpty();
-            then(heartbeatPort).should(never()).getScores(anyList());
+            then(waitingQueueHeartbeatPort).should(never()).getScores(anyList());
         }
 
         @Test
@@ -194,7 +194,7 @@ class WaitingQueueOperatorTest {
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3", "uuid-4");
             given(waitingQueuePort.peek(4)).willReturn(candidates);
             long now = System.currentTimeMillis();
-            given(heartbeatPort.getScores(candidates))
+            given(waitingQueueHeartbeatPort.getScores(candidates))
                     .willReturn(List.of(now, now, now, now));
 
             // when
@@ -213,7 +213,7 @@ class WaitingQueueOperatorTest {
             long now = System.currentTimeMillis();
             long expired = now - (QUEUE_TTL_SECONDS * 1000) - 1;
             // uuid-1 살아있음, uuid-2 만료, uuid-3 만료, uuid-4 살아있음, uuid-5 살아있음, uuid-6 살아있음
-            given(heartbeatPort.getScores(candidates))
+            given(waitingQueueHeartbeatPort.getScores(candidates))
                     .willReturn(List.of(now, expired, expired, now, now, now));
 
             // when
@@ -233,7 +233,7 @@ class WaitingQueueOperatorTest {
             List<Long> scores = new java.util.ArrayList<>();
             scores.add(now);
             scores.add(null);
-            given(heartbeatPort.getScores(candidates)).willReturn(scores);
+            given(waitingQueueHeartbeatPort.getScores(candidates)).willReturn(scores);
 
             // when
             List<String> result = operator.peekAlive(1);
@@ -248,18 +248,18 @@ class WaitingQueueOperatorTest {
     class FindExpired {
 
         @Test
-        @DisplayName("heartbeatPort에 cutoff 기준으로 만료 유저를 조회한다")
+        @DisplayName("waitingQueueHeartbeatPort에 cutoff 기준으로 만료 유저를 조회한다")
         void shouldFindExpiredWithCutoff() {
             // given
             List<String> expired = List.of("uuid-1", "uuid-2");
-            given(heartbeatPort.findExpired(anyLong())).willReturn(expired);
+            given(waitingQueueHeartbeatPort.findExpired(anyLong())).willReturn(expired);
 
             // when
             List<String> result = operator.findExpired();
 
             // then
             assertThat(result).containsExactly("uuid-1", "uuid-2");
-            then(heartbeatPort).should().findExpired(anyLong());
+            then(waitingQueueHeartbeatPort).should().findExpired(anyLong());
         }
     }
 
@@ -278,7 +278,7 @@ class WaitingQueueOperatorTest {
 
             // then
             then(waitingQueuePort).should().removeAll(uuids);
-            then(heartbeatPort).should().removeAll(uuids);
+            then(waitingQueueHeartbeatPort).should().removeAll(uuids);
         }
     }
 }

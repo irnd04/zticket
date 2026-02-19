@@ -12,20 +12,20 @@ import java.util.stream.IntStream;
 public class WaitingQueueOperator {
 
     private final WaitingQueuePort waitingQueuePort;
-    private final WaitingQueueHeartbeatPort heartbeatPort;
+    private final WaitingQueueHeartbeatPort waitingQueueHeartbeatPort;
     private final long queueTtlMs;
 
     public WaitingQueueOperator(WaitingQueuePort waitingQueuePort,
-                                WaitingQueueHeartbeatPort heartbeatPort,
+                                WaitingQueueHeartbeatPort waitingQueueHeartbeatPort,
                                 @Value("${zticket.admission.queue-ttl-seconds}") long queueTtlSeconds) {
         this.waitingQueuePort = waitingQueuePort;
-        this.heartbeatPort = heartbeatPort;
+        this.waitingQueueHeartbeatPort = waitingQueueHeartbeatPort;
         this.queueTtlMs = queueTtlSeconds * 1000;
     }
 
     public long enqueue(String uuid) {
         long rank = waitingQueuePort.enqueue(uuid);
-        heartbeatPort.register(uuid);
+        waitingQueueHeartbeatPort.refresh(uuid);
         return rank;
     }
 
@@ -34,12 +34,12 @@ public class WaitingQueueOperator {
         if (rank == null) {
             return null;
         }
-        List<Long> scores = heartbeatPort.getScores(List.of(uuid));
+        List<Long> scores = waitingQueueHeartbeatPort.getScores(List.of(uuid));
         return isAlive(scores.getFirst()) ? rank : null;
     }
 
     public void refresh(String uuid) {
-        heartbeatPort.refresh(uuid);
+        waitingQueueHeartbeatPort.refresh(uuid);
     }
 
     public List<String> peekAlive(int size) {
@@ -47,7 +47,7 @@ public class WaitingQueueOperator {
         if (candidates.isEmpty()) {
             return List.of();
         }
-        List<Long> scores = heartbeatPort.getScores(candidates);
+        List<Long> scores = waitingQueueHeartbeatPort.getScores(candidates);
         return IntStream.range(0, candidates.size())
             .filter(i -> isAlive(scores.get(i)))
             .mapToObj(candidates::get)
@@ -56,12 +56,12 @@ public class WaitingQueueOperator {
     }
 
     public List<String> findExpired() {
-        return heartbeatPort.findExpired(getHeartbeatCutoff());
+        return waitingQueueHeartbeatPort.findExpired(getHeartbeatCutoff());
     }
 
     public void removeAll(List<String> uuids) {
         waitingQueuePort.removeAll(uuids);
-        heartbeatPort.removeAll(uuids);
+        waitingQueueHeartbeatPort.removeAll(uuids);
     }
 
     private boolean isAlive(Long score) {
