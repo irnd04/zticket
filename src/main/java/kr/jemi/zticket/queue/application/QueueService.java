@@ -5,7 +5,6 @@ import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
 import kr.jemi.zticket.queue.application.port.in.GetQueueTokenUseCase;
-import kr.jemi.zticket.queue.application.port.in.RemoveExpiredUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.domain.QueueToken;
 import kr.jemi.zticket.seat.application.SeatService;
@@ -16,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase, RemoveExpiredUseCase {
+public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase {
 
     private final WaitingQueueOperator waitingQueueOperator;
     private final ActiveUserPort activeUserPort;
@@ -66,16 +65,19 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     }
 
     @Override
-    public long removeExpired() {
-        List<String> expiredUuids = waitingQueueOperator.findExpired();
-        if (!expiredUuids.isEmpty()) {
-            waitingQueueOperator.removeAll(expiredUuids);
-        }
-        return expiredUuids.size();
-    }
-
-    @Override
     public void admitBatch() {
+        // 1. removeExpired: 잠수 유저 제거
+        final int findExpiredBatchSize = 5000;
+        while (true) {
+            List<String> expiredUuids = waitingQueueOperator.findExpired(findExpiredBatchSize);
+            waitingQueueOperator.removeAll(expiredUuids);
+
+            if (expiredUuids.size() < findExpiredBatchSize) {
+                break;
+            }
+        }
+
+        // 2. 입장 인원 계산
         int currentActive = activeUserPort.countActive();
         int availableSlots = Math.max(0, maxActiveUsers - currentActive);
 
@@ -86,17 +88,16 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
             return;
         }
 
-        // 1. peek: FIFO 순서로 2배 후보 조회 → heartbeat 필터링 (삭제 안 함 → crash 시 유실 없음)
-        List<String> uuids = waitingQueueOperator.peekAlive(toAdmit);
-
+        // 3. peek: 잠수 유저 제거 후이므로 단순 FIFO 조회
+        List<String> uuids = waitingQueueOperator.peek(toAdmit);
         if (uuids.isEmpty()) {
             return;
         }
 
-        // 2. activate: active_user 키 생성 (파이프라이닝, 멱등 — 재실행해도 TTL만 갱신)
+        // 4. activate: active_user 키 생성 (파이프라이닝, 멱등 — 재실행해도 TTL만 갱신)
         activeUserPort.activateBatch(uuids, activeTtlSeconds);
 
-        // 3. remove: activate 완료 후에야 큐에서 제거
+        // 5. remove: activate 완료 후에야 큐에서 제거
         waitingQueueOperator.removeAll(uuids);
     }
 }

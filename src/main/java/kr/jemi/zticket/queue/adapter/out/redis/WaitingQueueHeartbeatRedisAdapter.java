@@ -1,6 +1,5 @@
 package kr.jemi.zticket.queue.adapter.out.redis;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -13,7 +12,6 @@ import kr.jemi.zticket.queue.application.port.out.WaitingQueueHeartbeatPort;
 public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatPort {
 
     private static final String KEY = "waiting_queue_heartbeat";
-    private static final int EXPIRE_BATCH_SIZE = 5000;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -38,18 +36,13 @@ public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatP
     }
 
     @Override
-    public List<String> findExpired(long cutoffTimestamp) {
-        List<String> expired = new ArrayList<>();
-        while (true) {
-            Set<String> batch = redisTemplate.opsForZSet()
-                    .rangeByScore(KEY, Double.NEGATIVE_INFINITY, cutoffTimestamp, 0, EXPIRE_BATCH_SIZE);
-            if (batch == null || batch.isEmpty()) {
-                break;
-            }
-            expired.addAll(batch);
-            redisTemplate.opsForZSet().remove(KEY, batch.toArray());
+    public List<String> findExpired(long cutoffTimestamp, int size) {
+        Set<String> batch = redisTemplate.opsForZSet()
+                .rangeByScore(KEY, Double.NEGATIVE_INFINITY, cutoffTimestamp, 0, size);
+        if (batch == null || batch.isEmpty()) {
+            return List.of();
         }
-        return expired;
+        return List.copyOf(batch);
     }
 
     @Override

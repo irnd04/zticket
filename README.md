@@ -119,24 +119,9 @@ sequenceDiagram
 
 100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가. Redis 단일 인스턴스(~10만 ops/s)에서 충분히 처리 가능하다.
 
-### 2. 잠수 유저 제거 플로우
+### 2. 입장 스케줄러 플로우
 
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거합니다. 입장 스케줄러(5초)와 별도로 `ExpiredQueueCleanupScheduler`(30초)에서 독립 실행됩니다.
-
-```mermaid
-flowchart TD
-    A[ExpiredQueueCleanupScheduler 매 30초] --> B[QueueService.removeExpired]
-    B --> C["WaitingQueueOperator.findExpired()<br/>ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff<br/>→ 마지막 폴링이 60초 이상 지난 유저 조회"]
-    C --> D{잠수 유저 있음?}
-    D -- 없음 --> END[종료]
-    D -- 있음 --> E["WaitingQueueOperator.removeAll()<br/>ZREM waiting_queue + ZREM waiting_queue_heartbeat"]
-    E --> END
-
-    style A fill:#f9f,stroke:#333
-    style END fill:#9f9,stroke:#333
-```
-
-### 3. 입장 스케줄러 플로우
+`AdmissionScheduler`(5초 주기)에서 **잠수 유저 제거 → 입장**을 한 번에 처리합니다.
 
 ```mermaid
 sequenceDiagram
@@ -147,18 +132,23 @@ sequenceDiagram
 
     S->>Q: admitBatch()
 
+    Note over Q: 1단계: 잠수 유저 제거
+    Q->>O: findExpired()
+    O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff
+    R-->>O: 잠수 uuid 목록
+    Q->>O: removeAll(expiredUuids)
+    O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
+
+    Note over Q: 2단계: 입장 인원 계산
     Q->>R: SCAN active_user:* → 현재 active 수 확인
     R-->>Q: currentActive
+    Note over Q: toAdmit = min(batchSize, 빈 슬롯, 잔여 좌석 - active 유저)
 
-    Note over Q: toAdmit = min(batchSize, 입장 가능 인원, 잔여 좌석 - active 유저)
-
-    Q->>O: peekAlive(toAdmit)
-    O->>R: ZRANGE waiting_queue 0 (toAdmit*2-1)
-    R-->>O: 2배수 후보 (FIFO 순서)
-    O->>R: ZMSCORE waiting_queue_heartbeat uuid1 uuid2 ...
-    R-->>O: [score1, score2, ...]
-    Note right of O: heartbeat 필터링 → toAdmit명까지만 반환
-    O-->>Q: 살아있는 uuid 목록 (최대 toAdmit명)
+    Note over Q: 3단계: peek → activate → remove
+    Q->>O: peek(toAdmit)
+    O->>R: ZRANGE waiting_queue 0 (toAdmit-1)
+    R-->>O: FIFO 순서 후보
+    O-->>Q: uuid 목록
 
     Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
     Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
@@ -169,7 +159,7 @@ sequenceDiagram
     Note right of R: remove: activate 후에야 큐에서 제거
 ```
 
-**peek → activate → remove 3단계 분리**: peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
+**removeExpireUuids → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
 ### 4. 구매 플로우: DB PAID 저장까지
 
@@ -349,48 +339,40 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 |------|--------------|------------------------|
 | 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
 | 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
-| 잠수 제거 (`ExpiredQueueCleanupScheduler`, 30초) | ZREM | ZRANGEBYSCORE + ZREM |
-| 입장 (`AdmissionScheduler`, 5초) | ZRANGE(peek) + ZREM | ZMSCORE(필터) + ZREM |
+| 잠수 제거 (`admitBatch` 1단계) | ZREM | ZRANGEBYSCORE + ZREM |
+| 입장 (`admitBatch` 3단계) | ZRANGE(peek) + ZREM | ZREM |
 
 **왜 Sorted Set 2개?**
 - `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
 - 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
 - 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
 
-#### 잠수 유저 제거
+#### 잠수 유저 제거 + 입장 제어 (removeExpireUuids → peek → activate → remove)
 
-대기열에 진입한 뒤 브라우저를 닫거나 이탈한 유저(잠수 유저)를 자동으로 제거한다. `ExpiredQueueCleanupScheduler`(30초 주기)에서 독립 실행된다.
+`AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리한다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
 
-**시간복잡도** (N = 대기열 인원, M = 제거 대상 수):
-
-| 연산 | 명령 | 시간 복잡도 | 빈도 |
-|------|------|--------|------|
-| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 30초마다 |
-| 잠수 제거 | ZREM × 2 | O(M log N) | 30초마다 |
+잠수 유저를 먼저 제거하므로, 이후 `peek`은 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 된다.
 
 **입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
 
-#### 입장 제어 (peek → activate → remove)
-
-`AdmissionScheduler`(5초 주기)에서 실행된다. 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
-
-`peekAlive`는 `ZRANGE waiting_queue`로 FIFO 순서 후보를 조회한 뒤 `ZMSCORE waiting_queue_heartbeat`로 heartbeat를 필터링하므로, 잠수 유저 제거 스케줄러(30초)와 입장 스케줄러(5초)의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
-
 **active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
 
-**peek → activate → remove 3단계 분리**:
+**removeExpireUuids → peek → activate → remove 4단계 분리**:
 
-- **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
+- **removeExpireUuids**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거. 이후 peek이 단순해진다.
+- **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
 - **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
 - **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
 
-**시간복잡도** (N = 대기열 인원, K = 입장 인원):
+**시간복잡도** (N = 대기열 인원, K = 입장 인원, M = 잠수 유저 수):
 
-| 연산 | 명령 | 시간 복잡도 | 빈도 | 비고 |
-|------|------|--------|------|------|
-| active 카운트 | SCAN | O(N) | 5초마다 | 키스페이스가 커지면 Sorted Set(`ZCARD` O(1))으로 전환 필요 |
-| peek | ZRANGE + ZMSCORE | O(K log N) | 5초마다 | FIFO 순서 후보 → heartbeat 필터링 |
-| remove | ZREM × 2 | O(K log N) | 5초마다 | |
+| 연산 | 명령 | 시간 복잡도 | 빈도 |
+|------|------|--------|------|
+| 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 5초마다 |
+| 잠수 제거 | ZREM × 2 | O(M log N) | 5초마다 |
+| active 카운트 | SCAN | O(N) | 5초마다 |
+| peek | ZRANGE | O(K log N) | 5초마다 |
+| remove | ZREM × 2 | O(K log N) | 5초마다 |
 
 ---
 
@@ -654,7 +636,8 @@ k6 run k6/queue-stress.js &
 | ZRANK | ~32.2K | 6ms | 16ms | 30ms | 순번 조회 |
 | EXISTS | ~31.6K | 7ms | 15ms | 30ms | active 토큰 확인 |
 | SCAN | ~0.2 | 4ms | 4ms | 4ms | active 유저 카운트 |
-| ZRANGEBYSCORE | ~0.4 | 3ms | 3ms | 4ms | 잠수 유저 탐색 + 입장 peek |
+| ZRANGEBYSCORE | ~0.2 | 3ms | 3ms | 4ms | 잠수 유저 탐색 |
+| ZRANGE | ~0.2 | 3ms | 3ms | 4ms | 입장 peek (FIFO) |
 | ZREM | ~0.6 | 5ms | 6ms | 6ms | 잠수 유저 제거 + 입장 remove |
 | **전체** | **~97K** | | | | |
 
@@ -733,8 +716,7 @@ kr.jemi.zticket
 │   │   │   ├── in/
 │   │   │   │   ├── EnterQueueUseCase.java         대기열 진입
 │   │   │   │   ├── GetQueueTokenUseCase.java      토큰 상태·순번 조회
-│   │   │   │   ├── AdmitUsersUseCase.java         대기 → active 배치 입장
-│   │   │   │   └── RemoveExpiredUseCase.java     잠수 유저 제거
+│   │   │   │   └── AdmitUsersUseCase.java         잠수 제거 + 배치 입장
 │   │   │   └── out/
 │   │   │       ├── WaitingQueuePort.java          대기열 Sorted Set 조작
 │   │   │       ├── WaitingQueueHeartbeatPort.java             heartbeat Sorted Set 조작
@@ -749,8 +731,7 @@ kr.jemi.zticket
 │       │   │       ├── TokenResponse.java              진입 응답 (uuid)
 │       │   │       └── QueueStatusResponse.java        폴링 응답 (status, rank)
 │       │   └── scheduler/
-│       │       ├── AdmissionScheduler.java          5초 배치 입장
-│       │       └── ExpiredQueueCleanupScheduler.java 30초 잠수 유저 제거
+│       │       └── AdmissionScheduler.java          5초 잠수 제거 + 배치 입장
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
@@ -880,7 +861,6 @@ zticket:
     max-active-users: ${zticket.seat.total-count}  # 동시 active 유저 상한 (= 총 좌석 수)
     batch-size: 100         # 주기당 최대 입장 인원
     queue-ttl-seconds: 60   # 대기열 잠수 제거 기준 (60초간 폴링 없으면 제거)
-    cleanup-interval-ms: 30000 # 잠수 유저 제거 스케줄러 주기 (30초)
   seat:
     total-count: 1000       # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)

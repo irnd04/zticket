@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.stream.IntStream;
 
 @Component
 public class WaitingQueueOperator {
@@ -25,47 +24,32 @@ public class WaitingQueueOperator {
 
     public long enqueue(String uuid) {
         long rank = waitingQueuePort.enqueue(uuid);
-        waitingQueueHeartbeatPort.refresh(uuid);
+        refresh(uuid);
         return rank;
     }
 
     public Long getRank(String uuid) {
-        Long rank = waitingQueuePort.getRank(uuid);
-        if (rank == null) {
-            return null;
-        }
-        List<Long> scores = waitingQueueHeartbeatPort.getScores(List.of(uuid));
-        return isAlive(scores.getFirst()) ? rank : null;
+        return waitingQueuePort.getRank(uuid);
     }
 
     public void refresh(String uuid) {
         waitingQueueHeartbeatPort.refresh(uuid);
     }
 
-    public List<String> peekAlive(int size) {
-        List<String> candidates = waitingQueuePort.peek(size * 2);
-        if (candidates.isEmpty()) {
-            return List.of();
-        }
-        List<Long> scores = waitingQueueHeartbeatPort.getScores(candidates);
-        return IntStream.range(0, candidates.size())
-            .filter(i -> isAlive(scores.get(i)))
-            .mapToObj(candidates::get)
-            .limit(size)
-            .toList();
+    public List<String> peek(int size) {
+        return waitingQueuePort.peek(size);
     }
 
-    public List<String> findExpired() {
-        return waitingQueueHeartbeatPort.findExpired(getHeartbeatCutoff());
+    public List<String> findExpired(int size) {
+        return waitingQueueHeartbeatPort.findExpired(getHeartbeatCutoff(), size);
     }
 
     public void removeAll(List<String> uuids) {
+        if (uuids == null || uuids.isEmpty()) {
+            return;
+        }
         waitingQueuePort.removeAll(uuids);
         waitingQueueHeartbeatPort.removeAll(uuids);
-    }
-
-    private boolean isAlive(Long score) {
-        return score != null && score >= getHeartbeatCutoff();
     }
 
     private long getHeartbeatCutoff() {

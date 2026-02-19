@@ -43,11 +43,11 @@ class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
 
         waitingQueueHeartbeatPort.refresh("uuid-3");
 
-        List<String> expired = waitingQueueHeartbeatPort.findExpired(cutoff);
+        List<String> expired = waitingQueueHeartbeatPort.findExpired(cutoff, 100);
 
         assertThat(expired).containsExactlyInAnyOrder("uuid-1", "uuid-2");
-        assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-1")).isNull();
-        assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-2")).isNull();
+        assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-1")).isNotNull();
+        assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-2")).isNotNull();
         assertThat(redisTemplate.opsForZSet().rank("waiting_queue_heartbeat", "uuid-3")).isNotNull();
     }
 
@@ -56,7 +56,7 @@ class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
     void findExpired_returns_empty_when_none_expired() {
         waitingQueueHeartbeatPort.refresh("uuid-1");
 
-        List<String> expired = waitingQueueHeartbeatPort.findExpired(0);
+        List<String> expired = waitingQueueHeartbeatPort.findExpired(0, 100);
 
         assertThat(expired).isEmpty();
     }

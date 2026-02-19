@@ -8,7 +8,7 @@ public interface WaitingQueueHeartbeatPort {
 
     List<Long> getScores(List<String> uuids);
 
-    List<String> findExpired(long cutoffTimestamp);
+    List<String> findExpired(long cutoffTimestamp, int size);
 
     void removeAll(List<String> uuids);
 }
