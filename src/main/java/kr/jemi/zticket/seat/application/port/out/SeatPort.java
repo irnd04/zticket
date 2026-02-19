@@ -13,7 +13,7 @@ public interface SeatPort {
 
     void paySeat(int seatNumber, String uuid);
 
-    void releaseSeat(int seatNumber);
+    void releaseSeat(int seatNumber, String uuid);
 
     Seats getStatuses(List<Integer> seatNumbers);
 }

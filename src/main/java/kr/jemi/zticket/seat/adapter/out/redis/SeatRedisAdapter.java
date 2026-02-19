@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import kr.jemi.zticket.seat.application.port.out.SeatPort;
@@ -16,6 +17,13 @@ import kr.jemi.zticket.seat.domain.Seats;
 public class SeatRedisAdapter implements SeatPort {
 
     private static final String KEY_PREFIX = "seat:";
+    private static final DefaultRedisScript<Boolean> RELEASE_IF_VALUE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+                return redis.call('DEL', KEYS[1])
+            else
+                return 0
+            end
+            """, Boolean.class);
 
     private final StringRedisTemplate redisTemplate;
 
@@ -46,8 +54,9 @@ public class SeatRedisAdapter implements SeatPort {
     }
 
     @Override
-    public void releaseSeat(int seatNumber) {
-        redisTemplate.delete(KEY_PREFIX + seatNumber);
+    public void releaseSeat(int seatNumber, String uuid) {
+        redisTemplate.execute(RELEASE_IF_VALUE_SCRIPT,
+                List.of(KEY_PREFIX + seatNumber), "held:" + uuid);
     }
 
     @Override

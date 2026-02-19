@@ -187,7 +187,7 @@ sequenceDiagram
 
     T->>DB: 3. INSERT ticket (status=PAID)
     alt DB 저장 실패
-        T->>R: DEL seat:N (롤백)
+        T->>R: Lua: held:{token}일 때만 DEL seat:N (롤백)
         T-->>C: INTERNAL_ERROR
     end
 
@@ -251,17 +251,25 @@ flowchart TD
 
 - **사용자 응답**: INTERNAL_ERROR (구매 실패)
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB 레코드 없음
-- 구매가 확정되지 않은 상태이므로 catch 블록에서 즉시 `DEL seat:{n}`으로 롤백합니다.
+- 구매가 확정되지 않은 상태이므로 catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백합니다 (다른 사용자의 키를 삭제하지 않음, [좌석 해제: Lua 스크립트로 조건부 삭제](#좌석-해제-lua-스크립트로-조건부-삭제) 참고).
 - 롤백마저 실패해도 held 키의 TTL(5분)이 자동 해제합니다.
 - **중복 판매 불가능**: DB에 레코드 자체가 없으므로 판매된 적이 없습니다.
 
-#### Case 2: DB PAID 성공 → 비동기 Redis paid 전환 실패 (또는 서버 사망)
+#### Case 2-1: DB PAID 성공 → 비동기 Redis paid 전환 실패 (또는 서버 사망)
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
 - Redis에 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
 - 동기화 배치가 1분마다 PAID 티켓을 조회하여 `SET seat:{n} paid:{token}`으로 Redis를 복원합니다.
 - **중복 판매 불가능**: 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
+
+#### Case 2-2: DB INSERT 성공했으나 타임아웃으로 실패 응답
+
+- **시나리오**: Redis held 성공 → DB INSERT 전송 → DB는 커밋 성공 → 그러나 네트워크 타임아웃으로 애플리케이션은 예외 수신
+- **사용자 응답**: INTERNAL_ERROR (구매 실패로 인식)
+- **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + DB `PAID` 레코드 존재
+- **복구**: 동기화 배치(1분 주기)가 DB에서 `PAID` 티켓을 발견하고, `SET seat:{n} paid:{token}`으로 Redis를 복원한 뒤 `SYNCED`로 갱신합니다.
+- **중복 판매 불가능**: Redis 키가 잠시 삭제되어 다른 사용자가 hold할 수 있지만, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다. 사용자에게는 실패로 응답되었지만 실제로는 구매가 완료된 상태이므로, 티켓 조회(마이페이지 등)에서 확인할 수 있습니다.
 
 #### Case 3: Redis paid 성공 → DB SYNCED 갱신 실패
 
@@ -280,10 +288,14 @@ flowchart TD
 #### 핵심 불변식
 
 - `동기화 배치 주기(1분) < hold TTL(5분)` → TTL 만료 전에 동기화가 완료됩니다.
+- **DB `seat_number UNIQUE`가 최종 방어선**: Redis 레이어에서 어떤 장애(TTL 만료, GC Pause, 네트워크 파티션)가 발생하더라도, DB의 유니크 제약이 동일 좌석에 대한 중복 판매를 원천 차단합니다.
+- **동기화 배치가 Redis를 DB 기준으로 복원**: DB PAID가 Source of Truth이므로, Redis에 어떤 잘못된 상태(다른 사용자의 held, 키 삭제 등)가 남아있어도 동기화 배치가 DB 기준으로 덮어써서 정합성을 회복합니다.
 
 ---
 
-### 2. 좌석 선점: `SET NX EX`
+### 2. 좌석 선점과 해제
+
+#### 선점: `SET NX EX`
 
 "키가 없을 때만 생성"이라는 단순한 조건이므로, Redis 네이티브 명령 하나로 원자적으로 처리됩니다.
 
@@ -292,6 +304,24 @@ flowchart TD
 Boolean success = redisTemplate.opsForValue()
         .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
 ```
+
+#### 해제: Lua 스크립트로 자신의 held만 삭제
+
+DB INSERT 실패 시 Redis 좌석을 롤백해야 하는데, 무조건 `DEL`하면 다른 사용자의 키를 삭제할 위험이 있습니다.
+
+- **문제 시나리오**: A가 `SET seat:7 "held:A" NX` 성공 → A의 스레드가 장시간 멈춤 (GC, 긴 I/O 대기, CPU 스케줄링 밀림 등) → 그 사이 held TTL 만료 → B가 같은 좌석 선점 + DB INSERT 성공 (PAID) → B의 비동기 처리 완료 (`SET seat:7 "paid:B"`, 티켓 `SYNCED`) → A의 스레드 재개, 아직 선점 중이라고 인식하고 DB INSERT 시도 → UNIQUE 위반으로 실패 → A의 catch 블록에서 `DEL seat:7` 실행 → **B의 `paid:B`가 삭제됨**
+- **위험**: B는 정상 구매 완료했는데 Redis에서 `paid:B`가 사라집니다. 좌석이 AVAILABLE로 노출되고, B의 티켓은 이미 `SYNCED`라서 동기화 배치가 다시 잡아주지 않습니다. 영구적 Redis-DB 불일치.
+- **해결**: Lua 스크립트로 `held:{자신의 토큰}`일 때만 삭제합니다. GET + 비교 + DEL을 원자적으로 처리하여 race condition을 방지합니다.
+
+```lua
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+else
+    return 0
+end
+```
+
+이는 Redis 분산 락 해제의 정석 패턴(Compare-and-Delete)과 동일합니다.
 
 ---
 

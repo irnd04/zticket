@@ -192,7 +192,7 @@ class TicketServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.INTERNAL_ERROR);
 
-            then(seatPort).should().releaseSeat(seatNumber);
+            then(seatPort).should().releaseSeat(seatNumber, token);
         }
 
         @Test

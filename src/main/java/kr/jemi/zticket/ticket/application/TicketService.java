@@ -58,7 +58,7 @@ public class TicketService implements PurchaseTicketUseCase {
         } catch (Exception e) {
             // 롤백: Redis 좌석 해제
             log.error("DB 저장 실패, 좌석 해제: {}", seatNumber, e);
-            seatPort.releaseSeat(seatNumber);
+            seatPort.releaseSeat(seatNumber, queueToken);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR);
         }
 
