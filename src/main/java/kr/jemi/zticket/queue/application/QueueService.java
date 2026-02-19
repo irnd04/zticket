@@ -71,7 +71,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
 
     @Override
     public long removeExpired() {
-        return waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+        return waitingQueuePort.removeExpired(heartbeatCutoff());
     }
 
     @Override
@@ -89,8 +89,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         }
 
         // 1. peek: heartbeat 기준으로 살아있는 유저만 조회 (삭제 안 함 → crash 시 유실 없음)
-        long cutoff = System.currentTimeMillis() - queueTtlMs;
-        List<String> candidates = waitingQueuePort.peekBatch(toAdmit, cutoff);
+        List<String> candidates = waitingQueuePort.peekBatch(toAdmit, heartbeatCutoff());
         if (candidates.isEmpty()) {
             return;
         }
@@ -100,5 +99,9 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
 
         // 3. remove: activate 완료 후에야 큐에서 제거
         waitingQueuePort.removeBatch(candidates);
+    }
+
+    private long heartbeatCutoff() {
+        return System.currentTimeMillis() - queueTtlMs;
     }
 }
