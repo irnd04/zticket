@@ -624,29 +624,22 @@ k6 run k6/queue-stress.js &
 
 | 엔드포인트 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|-----|-----|-------|------|
-| `POST /api/queues/tokens` | ~645 req/s | 29ms | 73ms | 109ms | 1분에 ~3.9만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | ~31.6K req/s | 29ms | 73ms | 110ms | 5초 폴링 기준 **~15.8만 명** 동시 대기 |
+| `POST /api/queues/tokens` | ~640 req/s | 27ms | 46ms | 78ms | 1분에 ~3.8만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` | ~31.6K req/s | 27ms | 48ms | 83ms | 5초 폴링 기준 **~15.8만 명** 동시 대기 |
 | **합계** | **~32.2K req/s** | | | | |
-
-#### 시스템 리소스
-
-| 지표 | 값 | 비고 |
-|------|-----|------|
-| Virtual Threads | 요청당 생성·소멸 (~32.2K/s) | Carrier thread 위에서 동작 |
-| JVM Heap | ~1.3GB | 여유 |
 
 #### Redis
 
 | 명령 | ops/s | p95 | p99 | p99.9 | 용도 |
 |------|-------|-----|-----|-------|------|
-| ZADD | ~32.9K | 6ms | 15ms | 30ms | 대기열 진입 + heartbeat 갱신 |
-| ZRANK | ~32.2K | 6ms | 16ms | 30ms | 순번 조회 |
-| EXISTS | ~31.6K | 7ms | 15ms | 30ms | active 토큰 확인 |
-| SCAN | ~0.2 | 4ms | 4ms | 4ms | active 유저 카운트 |
-| ZRANGEBYSCORE | ~0.2 | 3ms | 3ms | 4ms | 잠수 유저 탐색 |
-| ZRANGE | ~0.2 | 3ms | 3ms | 4ms | 입장 peek (FIFO) |
-| ZREM | ~0.6 | 5ms | 6ms | 6ms | 잠수 유저 제거 + 입장 remove |
-| **전체** | **~97K** | | | | |
+| ZADD | ~32.9K | 6ms | 13ms | 21ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | ~32.2K | 6ms | 13ms | 22ms | 순번 조회 |
+| EXISTS | ~31.6K | 6ms | 13ms | 22ms | active 토큰 확인 |
+| SCAN | ~0.2 | 11ms | 11ms | 11ms | active 유저 카운트 |
+| ZRANGEBYSCORE | ~0.4 | 7ms | 11ms | 11ms | 잠수 유저 탐색 |
+| ZREM | ~0.6 | 6ms | 9ms | 10ms | 잠수 유저 제거 + 입장 remove |
+| MGET | ~0.2 | 4ms | 4ms | 4ms | heartbeat score 조회 |
+| **전체** | **~96.7K** | | | | |
 
 병목은 **로컬 CPU 포화**(시스템 CPU 99%)입니다. 단일 머신에서 App + k6 + Redis + Prometheus + Grafana를 동시에 실행하여 CPU를 거의 다 사용합니다. 서버 측(앱, Redis)은 여유가 있으므로, 부하 생성기를 별도 머신으로 분리하면 더 높은 처리량이 나올 것으로 예상됩니다.
 
