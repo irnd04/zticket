@@ -726,7 +726,7 @@ kr.jemi.zticket
 │   │   │   │   └── RemoveExpiredUseCase.java     잠수 유저 제거
 │   │   │   └── out/
 │   │   │       ├── WaitingQueuePort.java          대기열 Sorted Set 조작
-│   │   │       ├── HeartbeatPort.java             heartbeat Sorted Set 조작
+│   │   │       ├── WaitingQueueHeartbeatPort.java             heartbeat Sorted Set 조작
 │   │   │       └── ActiveUserPort.java            active 유저 SET 조작
 │   │   ├── QueueService.java                      대기열 비즈니스 로직
 │   │   └── WaitingQueueOperator.java              대기열+heartbeat 조합 연산
@@ -743,7 +743,7 @@ kr.jemi.zticket
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
-│               ├── HeartbeatRedisAdapter.java     Sorted Set 기반 heartbeat
+│               ├── WaitingQueueHeartbeatRedisAdapter.java     Sorted Set 기반 heartbeat
 │               └── ActiveUserRedisAdapter.java    SET 기반 active 관리
 │
 ├── seat/                                       좌석 도메인 (독립)

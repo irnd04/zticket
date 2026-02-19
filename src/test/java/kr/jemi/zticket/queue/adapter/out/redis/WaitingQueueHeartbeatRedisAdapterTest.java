@@ -1,7 +1,7 @@
 package kr.jemi.zticket.queue.adapter.out.redis;
 
 import kr.jemi.zticket.integration.IntegrationTestBase;
-import kr.jemi.zticket.queue.application.port.out.HeartbeatPort;
+import kr.jemi.zticket.queue.application.port.out.WaitingQueueHeartbeatPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,10 +11,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class HeartbeatRedisAdapterTest extends IntegrationTestBase {
+class WaitingQueueHeartbeatRedisAdapterTest extends IntegrationTestBase {
 
     @Autowired
-    HeartbeatPort heartbeatPort;
+    WaitingQueueHeartbeatPort heartbeatPort;
 
     @Autowired
     StringRedisTemplate redisTemplate;

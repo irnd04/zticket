@@ -1,6 +1,6 @@
 package kr.jemi.zticket.queue.application;
 
-import kr.jemi.zticket.queue.application.port.out.HeartbeatPort;
+import kr.jemi.zticket.queue.application.port.out.WaitingQueueHeartbeatPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +23,7 @@ class WaitingQueueOperatorTest {
     private WaitingQueuePort waitingQueuePort;
 
     @Mock
-    private HeartbeatPort heartbeatPort;
+    private WaitingQueueHeartbeatPort heartbeatPort;
 
     private WaitingQueueOperator operator;
 
@@ -141,7 +141,7 @@ class WaitingQueueOperatorTest {
 
         @Test
         @DisplayName("heartbeatPort에 갱신을 위임한다")
-        void shouldDelegateToHeartbeatPort() {
+        void shouldDelegateToWaitingQueueHeartbeatPort() {
             // when
             operator.refresh("uuid-1");
 

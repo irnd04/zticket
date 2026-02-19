@@ -7,17 +7,17 @@ import java.util.Set;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import kr.jemi.zticket.queue.application.port.out.HeartbeatPort;
+import kr.jemi.zticket.queue.application.port.out.WaitingQueueHeartbeatPort;
 
 @Component
-public class HeartbeatRedisAdapter implements HeartbeatPort {
+public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatPort {
 
     private static final String KEY = "waiting_queue_heartbeat";
     private static final int EXPIRE_BATCH_SIZE = 5000;
 
     private final StringRedisTemplate redisTemplate;
 
-    public HeartbeatRedisAdapter(StringRedisTemplate redisTemplate) {
+    public WaitingQueueHeartbeatRedisAdapter(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 

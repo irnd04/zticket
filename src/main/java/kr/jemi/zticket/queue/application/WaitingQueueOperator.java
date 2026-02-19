@@ -1,6 +1,6 @@
 package kr.jemi.zticket.queue.application;
 
-import kr.jemi.zticket.queue.application.port.out.HeartbeatPort;
+import kr.jemi.zticket.queue.application.port.out.WaitingQueueHeartbeatPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -12,11 +12,11 @@ import java.util.stream.IntStream;
 public class WaitingQueueOperator {
 
     private final WaitingQueuePort waitingQueuePort;
-    private final HeartbeatPort heartbeatPort;
+    private final WaitingQueueHeartbeatPort heartbeatPort;
     private final long queueTtlMs;
 
     public WaitingQueueOperator(WaitingQueuePort waitingQueuePort,
-                                HeartbeatPort heartbeatPort,
+                                WaitingQueueHeartbeatPort heartbeatPort,
                                 @Value("${zticket.admission.queue-ttl-seconds}") long queueTtlSeconds) {
         this.waitingQueuePort = waitingQueuePort;
         this.heartbeatPort = heartbeatPort;

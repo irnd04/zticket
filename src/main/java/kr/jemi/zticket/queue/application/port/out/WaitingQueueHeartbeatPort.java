@@ -2,7 +2,7 @@ package kr.jemi.zticket.queue.application.port.out;
 
 import java.util.List;
 
-public interface HeartbeatPort {
+public interface WaitingQueueHeartbeatPort {
 
     void register(String uuid);
 
