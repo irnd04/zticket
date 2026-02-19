@@ -41,15 +41,19 @@ Java 25 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기�
 ## 실행 방법
 
 ```bash
-# 1. 인프라 실행 (MySQL + Redis + Prometheus + Grafana)
+# 1. 전체 실행 (App + MySQL + Redis + Prometheus + Grafana)
 docker compose up -d
 
-# 2. 애플리케이션 실행
-./gradlew bootRun
-
-# 3. 접속
+# 2. 접속
 open http://localhost:8080   # ZTicket
 open http://localhost:3000   # Grafana (admin / admin)
+```
+
+로컬 개발 시에는 인프라만 띄우고 앱을 직접 실행할 수도 있습니다:
+
+```bash
+docker compose up -d mysql redis prometheus grafana
+./gradlew bootRun
 ```
 
 ---
@@ -673,7 +677,7 @@ Prometheus (:9090)
 Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 ```
 
-`docker compose up -d` + `./gradlew bootRun` 후 [localhost:3000](http://localhost:3000)에서 `ZTicket Monitoring` 대시보드가 자동 프로비저닝되어 있습니다.
+`docker compose up -d` 후 [localhost:3000](http://localhost:3000)에서 `ZTicket Monitoring` 대시보드가 자동 프로비저닝되어 있습니다.
 
 ### 대시보드 패널
 
