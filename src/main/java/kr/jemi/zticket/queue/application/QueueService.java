@@ -78,7 +78,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         int availableSlots = Math.max(0, maxActiveUsers - currentActive);
 
         // active 유저가 구매할 좌석을 보수적으로 차감
-        int remainingSeats = seatService.getAvailableCountNoCache();
+        int remainingSeats = seatService.getAvailableCount();
         int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - currentActive)));
 
         if (toAdmit <= 0) {
@@ -91,10 +91,8 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
             return;
         }
 
-        // 2. activate: active_user 키 생성 (멱등 — 재실행해도 TTL만 갱신)
-        for (String uuid : candidates) {
-            activeUserPort.activate(uuid, activeTtlSeconds);
-        }
+        // 2. activate: active_user 키 생성 (파이프라이닝, 멱등 — 재실행해도 TTL만 갱신)
+        activeUserPort.activateBatch(candidates, activeTtlSeconds);
 
         // 3. remove: activate 완료 후에야 큐에서 제거
         waitingQueuePort.removeBatch(candidates);

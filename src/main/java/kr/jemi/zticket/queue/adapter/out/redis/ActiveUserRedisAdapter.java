@@ -1,9 +1,13 @@
 package kr.jemi.zticket.queue.adapter.out.redis;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +27,19 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
     @Override
     public void activate(String uuid, long ttlSeconds) {
         redisTemplate.opsForValue().set(KEY_PREFIX + uuid, "1", ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public void activateBatch(List<String> uuids, long ttlSeconds) {
+        redisTemplate.executePipelined(new SessionCallback<>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                for (String uuid : uuids) {
+                    operations.opsForValue().set(KEY_PREFIX + uuid, "1", ttlSeconds, TimeUnit.SECONDS);
+                }
+                return null;
+            }
+        });
     }
 
     @Override

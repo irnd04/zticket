@@ -370,7 +370,14 @@
                 var response = await fetch('/api/queues/tokens/' + encodeURIComponent(uuid));
 
                 if (!response.ok) {
-                    // 4xx, 5xx 모두 일시적일 수 있으므로 폴링 유지
+                    if (response.status === 404) {
+                        var errData = await response.json().catch(function() { return null; });
+                        if (errData && errData.code === 'QUEUE_TOKEN_NOT_FOUND') {
+                            showError('대기열 토큰이 만료되었거나 존재하지 않습니다.');
+                            return;
+                        }
+                    }
+                    // 그 외 4xx, 5xx는 일시적일 수 있으므로 폴링 유지
                     return;
                 }
 

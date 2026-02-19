@@ -1,7 +1,7 @@
 # ZTicket - 대용량 선착순 좌석 티켓 구매 시스템
 
 수십만 명 동시 접속 상황에서 선착순 좌석 티켓 구매를 처리하는 시스템입니다.
-Java 21 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기열, 비동기 이벤트 동기화 + 배치 복구를 통해
+Java 25 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기열, 비동기 이벤트 동기화 + 배치 복구를 통해
 **중복 판매 없는 정합성**과 **높은 처리량**을 동시에 달성합니다.
 
 ---
@@ -27,7 +27,7 @@ Java 21 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기�
 
 | 구분 | 기술 | 버전 |
 |------|------|------|
-| Language | Java | 21 |
+| Language | Java | 25 |
 | Framework | Spring Boot | 4.0.2 |
 | ORM | Spring Data JPA + Hibernate | - |
 | Database | MySQL | 8.0 |
@@ -144,10 +144,8 @@ sequenceDiagram
     R-->>Q: [uuid1, uuid2, ...]
     Note right of R: peek: 조회만, 삭제 안 함
 
-    loop 각 uuid에 대해
-        Q->>R: SET active_user:{uuid} "1" EX 300
-    end
-    Note right of R: activate: 입장 처리
+    Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
+    Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
 
     Q->>R: ZREM waiting_queue {uuids}
     Q->>R: ZREM waiting_queue_heartbeat {uuids}
@@ -374,15 +372,13 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
 
 // 1~3. 입장 처리
-long currentActive = activeUserPort.countActive();
-int availableSlots = (int) Math.max(0, maxActiveUsers - currentActive);
-int remainingSeats = (int) seatService.getAvailableCountNoCache();
-int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - (int) currentActive)));  // batchSize 상한 + active 유저 보수적 차감
+int currentActive = activeUserPort.countActive();
+int availableSlots = Math.max(0, maxActiveUsers - currentActive);
+int remainingSeats = seatService.getAvailableCount();
+int toAdmit = Math.min(batchSize, Math.min(availableSlots, Math.max(0, remainingSeats - currentActive)));  // batchSize 상한 + active 유저 보수적 차감
 
 List<String> candidates = waitingQueuePort.peekBatch(toAdmit);   // 1. 조회만 (삭제 안 함)
-for (String uuid : candidates) {
-    activeUserPort.activate(uuid, activeTtlSeconds);              // 2. active_user 키 생성
-}
+activeUserPort.activateBatch(candidates, activeTtlSeconds);       // 2. 파이프라이닝으로 일괄 activate
 waitingQueuePort.removeBatch(candidates);                         // 3. 큐에서 제거
 ```
 
@@ -395,7 +391,7 @@ waitingQueuePort.removeBatch(candidates);                         // 3. 큐에�
 **peek → activate → remove 3단계 분리**:
 
 - **peek**: 큐에서 꺼내지 않고 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
-- **activate**: `active_user:{uuid}` 키 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
+- **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
 - **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
 
 ---
@@ -563,7 +559,7 @@ public Ticket save(Ticket ticket) {
 
 ### 6. 스레드 모델: Virtual Thread vs Platform Thread
 
-#### 선택: Java 21 Virtual Thread (`spring.threads.virtual.enabled: true`)
+#### 선택: Java 25 Virtual Thread (`spring.threads.virtual.enabled: true`)
 
 **Platform Thread를 사용하지 않는 이유**:
 - **스레드 풀이 병목**: Tomcat 기본 200개 스레드로는 동시 요청이 200개를 넘으면 대기열에 쌓입니다. 폴링 요청이 수만 req/s인 환경에서 스레드 풀 크기를 늘려도 OS 스레드 생성 비용(~1MB 스택)과 컨텍스트 스위칭 오버헤드로 한계가 있습니다.
@@ -576,7 +572,7 @@ public Ticket save(Ticket ticket) {
 
 **주의사항**:
 - **ThreadLocal 남용 금지**: VT는 요청마다 생성·소멸되므로 platform thread처럼 ThreadLocal이 누수되지는 않습니다. 하지만 VT가 수만 개 동시에 존재하면 ThreadLocal 인스턴스도 수만 개가 생성되어 순간 메모리 사용량이 증가합니다. 가능하면 `ScopedValue`(Java 25~)로 대체하는 것이 권장됩니다.
-- **pinning 주의**: `synchronized` 블록 내에서 블로킹 작업을 수행하면 VT가 carrier thread에 고정(pinning)되어 성능이 저하됩니다. `ReentrantLock`으로 대체하고, 혹시 모를 pinning 감지를 위해 `-Djdk.tracePinnedThreads=short`를 적용해야 합니다.
+- **pinning 해결 (JEP 491)**: Java 24부터 `synchronized` 블록 내에서 블로킹해도 VT가 carrier thread에 고정(pinning)되지 않습니다. Java 25에서는 이 문제가 완전히 해결되어 `ReentrantLock`으로 대체할 필요가 없습니다. 참고로 `-Djdk.tracePinnedThreads=short`를 적용하면 혹시 모를 pinning을 감지할 수 있습니다.
 
 ---
 
@@ -855,7 +851,7 @@ src/main/resources/templates/
 | POST | `/api/queues/tokens` | 대기열 진입, UUID 토큰 반환 | 없음 |
 | GET | `/api/queues/tokens/{uuid}` | 대기 순번/상태 조회 | 없음 |
 | GET | `/api/seats` | 전체 좌석 현황 조회 | 없음 |
-| GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 5초 TTL) | 없음 |
+| GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 5초 TTL, sync=true) | 없음 |
 | POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
 
 ---

@@ -30,7 +30,7 @@ public class SeatService implements GetSeatsUseCase {
         return seatPort.getStatuses(allSeats);
     }
 
-    @Cacheable("availableCount")
+    @Cacheable(value = "availableCount", sync = true)
     public int getAvailableCount() {
         return getAvailableCountNoCache();
     }

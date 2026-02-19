@@ -198,19 +198,17 @@ class QueueServiceTest {
             // given
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
             given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(candidates);
 
             // when
             queueService.admitBatch();
 
-            // then - 순서 검증: removeExpired → peek → activate(각각) → remove
+            // then - 순서 검증: removeExpired → peek → activateBatch → remove
             InOrder inOrder = inOrder(waitingQueuePort, activeUserPort);
             inOrder.verify(waitingQueuePort).removeExpired(anyLong());
             inOrder.verify(waitingQueuePort).peekBatch(BATCH_SIZE);
-            inOrder.verify(activeUserPort).activate("uuid-1", ACTIVE_TTL_SECONDS);
-            inOrder.verify(activeUserPort).activate("uuid-2", ACTIVE_TTL_SECONDS);
-            inOrder.verify(activeUserPort).activate("uuid-3", ACTIVE_TTL_SECONDS);
+            inOrder.verify(activeUserPort).activateBatch(candidates, ACTIVE_TTL_SECONDS);
             inOrder.verify(waitingQueuePort).removeBatch(candidates);
         }
 
@@ -221,7 +219,7 @@ class QueueServiceTest {
             // activate 후에야 remove하므로 "큐에서 빠졌는데 active 안 된" 상태 불가
             List<String> candidates = List.of("uuid-1");
             given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(anyInt())).willReturn(candidates);
 
             // when
@@ -229,7 +227,7 @@ class QueueServiceTest {
 
             // then
             InOrder inOrder = inOrder(activeUserPort, waitingQueuePort);
-            inOrder.verify(activeUserPort).activate("uuid-1", ACTIVE_TTL_SECONDS);
+            inOrder.verify(activeUserPort).activateBatch(candidates, ACTIVE_TTL_SECONDS);
             inOrder.verify(waitingQueuePort).removeBatch(candidates);
         }
     }
@@ -257,7 +255,7 @@ class QueueServiceTest {
         void shouldAdmitOnlyAvailableSlots() {
             // given - 현재 480명 active → 빈 슬롯 20개
             given(activeUserPort.countActive()).willReturn(480);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             List<String> candidates = List.of("uuid-1", "uuid-2");
             given(waitingQueuePort.peekBatch(20)).willReturn(candidates);
 
@@ -273,7 +271,7 @@ class QueueServiceTest {
         void shouldSubtractActiveUsersFromRemainingSeats() {
             // given - 잔여 좌석 5개, active 3명 → 입장 가능 = 5 - 3 = 2명
             given(activeUserPort.countActive()).willReturn(3);
-            given(seatService.getAvailableCountNoCache()).willReturn(5);
+            given(seatService.getAvailableCount()).willReturn(5);
             List<String> candidates = List.of("uuid-1", "uuid-2");
             given(waitingQueuePort.peekBatch(2)).willReturn(candidates);
 
@@ -282,8 +280,7 @@ class QueueServiceTest {
 
             // then - 잔여 좌석(5) - active(3) = 2명만 입장
             then(waitingQueuePort).should().peekBatch(2);
-            then(activeUserPort).should().activate("uuid-1", ACTIVE_TTL_SECONDS);
-            then(activeUserPort).should().activate("uuid-2", ACTIVE_TTL_SECONDS);
+            then(activeUserPort).should().activateBatch(candidates, ACTIVE_TTL_SECONDS);
         }
 
         @Test
@@ -291,7 +288,7 @@ class QueueServiceTest {
         void shouldNotAdmitWhenRemainingSeatsLessThanActive() {
             // given - 잔여 좌석 3개, active 5명 → 입장 가능 = max(0, 3 - 5) = 0명
             given(activeUserPort.countActive()).willReturn(5);
-            given(seatService.getAvailableCountNoCache()).willReturn(3);
+            given(seatService.getAvailableCount()).willReturn(3);
 
             // when
             queueService.admitBatch();
@@ -323,7 +320,7 @@ class QueueServiceTest {
         void shouldNotExceedBatchSize() {
             // given - active 0명, 잔여 좌석 1000개 → 슬롯 500개이지만 batchSize=100 제한
             given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of("uuid-1"));
 
             // when
@@ -338,7 +335,7 @@ class QueueServiceTest {
         void shouldAdmitFewerThanBatchSizeWhenSlotsLimited() {
             // given - active 470명 → 빈 슬롯 30개 < batchSize(100)
             given(activeUserPort.countActive()).willReturn(470);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(30)).willReturn(List.of("uuid-1"));
 
             // when
@@ -358,7 +355,7 @@ class QueueServiceTest {
         void shouldRemoveExpiredBeforeAdmitting() {
             // given
             given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(anyInt())).willReturn(List.of("uuid-1"));
 
             // when
@@ -395,14 +392,14 @@ class QueueServiceTest {
         void shouldDoNothingWhenQueueIsEmpty() {
             // given
             given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of());
 
             // when
             queueService.admitBatch();
 
             // then
-            then(activeUserPort).should(never()).activate(anyString(), anyLong());
+            then(activeUserPort).should(never()).activateBatch(anyList(), anyLong());
             then(waitingQueuePort).should(never()).removeBatch(anyList());
         }
     }
@@ -426,16 +423,15 @@ class QueueServiceTest {
 
             // 2주기 - TTL 만료로 active 감소
             given(activeUserPort.countActive()).willReturn(490);
-            given(seatService.getAvailableCountNoCache()).willReturn(1000);
+            given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueuePort.peekBatch(10)).willReturn(
                     List.of("new-1", "new-2", "new-3"));
 
             queueService.admitBatch();
 
             // then - 새 유저 입장
-            then(activeUserPort).should().activate("new-1", ACTIVE_TTL_SECONDS);
-            then(activeUserPort).should().activate("new-2", ACTIVE_TTL_SECONDS);
-            then(activeUserPort).should().activate("new-3", ACTIVE_TTL_SECONDS);
+            then(activeUserPort).should().activateBatch(
+                    List.of("new-1", "new-2", "new-3"), ACTIVE_TTL_SECONDS);
         }
     }
 }
