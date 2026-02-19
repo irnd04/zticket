@@ -8,11 +8,7 @@ public interface WaitingQueuePort {
 
     Long getRank(String uuid);
 
-    List<String> peekBatch(int count, long cutoffTimestamp);
+    List<String> peek(int count);
 
-    void removeBatch(List<String> uuids);
-
-    void refreshScore(String uuid);
-
-    long removeExpired(long cutoffTimestamp);
+    void removeAll(List<String> uuids);
 }

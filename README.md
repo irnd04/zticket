@@ -48,14 +48,6 @@ docker compose up -d
 open http://localhost:8080   # ZTicket
 open http://localhost:3000   # Grafana (admin / admin)
 ```
-
-로컬 개발 시에는 인프라만 띄우고 앱을 직접 실행할 수도 있습니다:
-
-```bash
-docker compose up -d mysql redis prometheus grafana
-./gradlew bootRun
-```
-
 ---
 
 ## 아키텍처 Overview
@@ -152,9 +144,11 @@ sequenceDiagram
 
     Note over Q: toAdmit = min(batchSize, 입장 가능 인원, 잔여 좌석 - active 유저)
 
-    Q->>R: ZRANGEBYSCORE waiting_queue_heartbeat cutoff +inf LIMIT 0 toAdmit
-    R-->>Q: [uuid1, uuid2, ...]
-    Note right of R: peek: heartbeat 살아있는 유저만 조회 (삭제 안 함)
+    Q->>R: ZRANGE waiting_queue 0 (toAdmit*2-1)
+    R-->>Q: [uuid1, uuid2, ...] (FIFO 순서 후보)
+    Q->>R: ZMSCORE waiting_queue_heartbeat uuid1 uuid2 ...
+    R-->>Q: [score1, score2, ...]
+    Note right of R: peek: FIFO 순서 후보 → heartbeat 필터링 (삭제 안 함)
 
     Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
     Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
@@ -369,7 +363,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 
 `AdmissionScheduler`(5초 주기)에서 실행된다. 매 주기마다 active 유저 수를 세고, `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
 
-`peekBatch`는 `ZRANGEBYSCORE`로 heartbeat cutoff를 적용하므로, 잠수 유저 제거 스케줄러(30초)와 입장 스케줄러(5초)의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
+`peekAlive`는 `ZRANGE waiting_queue`로 FIFO 순서 후보를 조회한 뒤 `ZMSCORE waiting_queue_heartbeat`로 heartbeat를 필터링하므로, 잠수 유저 제거 스케줄러(30초)와 입장 스케줄러(5초)의 실행 주기가 달라도 잠수 유저가 입장 후보에 포함되지 않습니다.
 
 **active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
 
@@ -384,7 +378,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 연산 | 명령 | 시간 복잡도 | 빈도 | 비고 |
 |------|------|--------|------|------|
 | active 카운트 | SCAN | O(N) | 5초마다 | 키스페이스가 커지면 Sorted Set(`ZCARD` O(1))으로 전환 필요 |
-| peek | ZRANGEBYSCORE + LIMIT | O(log N + K) | 5초마다 | |
+| peek | ZRANGE + ZMSCORE | O(K log N) | 5초마다 | FIFO 순서 후보 → heartbeat 필터링 |
 | remove | ZREM × 2 | O(K log N) | 5초마다 | |
 
 ---
@@ -480,7 +474,7 @@ public Ticket save(Ticket ticket) {
 **트레이드오프**:
 - **메모리**: UUID 멤버 기준 `waiting_queue` + `waiting_queue_heartbeat` 합산 유저당 ~250bytes. 1,000만 명이면 ~2.5GB로 단일 인스턴스에서 충분합니다. 다만 대기자가 많아질수록 폴링에 의한 ops/s가 증가하므로(1,000만 명 × 5초 폴링 = ~200만 ops/s), Redis 싱글 스레드 처리량 한계(~10만 ops/s)에 도달할 수 있습니다. 대응 방법은 두 가지입니다:
   - **폴링 주기 늘리기**: 5초 → 120초로 변경하면 ~200만 → ~8만 ops/s로 감소. 인프라 변경 없이 설정값만 조정하면 되지만, 입장이 최대 2분까지 지연됩니다.
-  - **Redis Cluster 샤딩**: 처리량 자체를 수평 확장. 폴링 주기를 유지하면서 대규모 대기열을 처리할 수 있지만, 인프라 복잡도가 증가합니다.
+  - **애플리케이션 레벨 큐 샤딩**: `waiting_queue`를 여러 개(`waiting_queue:0`, `waiting_queue:1`, ...)로 분할하고 별도 Redis 인스턴스에 배치. Redis Cluster는 키 단위로 분산하므로 단일 Sorted Set인 `waiting_queue`는 한 샤드에만 존재하여 효과가 없습니다. 구현 복잡도가 높습니다.
 - **영속성 부재**: Redis는 인메모리 저장소이므로 장애 시 대기열 데이터가 유실됩니다. 다만 대기열은 공연 시작 전 잠깐 사용되는 일시적 데이터이므로, 장애 복구 후 사용자가 다시 줄을 서는 것이 자연스럽습니다.
 - **순서 보장 범위**: `System.currentTimeMillis()` 기반 score를 사용하므로, 같은 밀리초에 도착한 요청은 순서가 보장되지 않습니다. 다만 1ms 이내의 차이는 사람이 체감할 수 없는 수준이므로, 선착순 공정성에 실질적인 영향은 없습니다.
 
@@ -624,7 +618,7 @@ k6 run k6/queue-stress.js &
 > 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 Docker Compose(App + Redis + MySQL + Prometheus + Grafana) + k6를 동시에 실행한 환경.
 > k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
 
-**테스트 조건**: enter-stress 60 VU + queue-stress 5,400 VU (합계 5,460 VU), 10분
+**테스트 조건**: enter-stress 100 VU + queue-stress 5,000 VU (합계 5,100 VU), 10분
 
 #### HTTP
 
@@ -732,8 +726,10 @@ kr.jemi.zticket
 │   │   │   │   └── RemoveExpiredUseCase.java     잠수 유저 제거
 │   │   │   └── out/
 │   │   │       ├── WaitingQueuePort.java          대기열 Sorted Set 조작
+│   │   │       ├── HeartbeatPort.java             heartbeat Sorted Set 조작
 │   │   │       └── ActiveUserPort.java            active 유저 SET 조작
-│   │   └── QueueService.java                      대기열 비즈니스 로직
+│   │   ├── QueueService.java                      대기열 비즈니스 로직
+│   │   └── WaitingQueueOperator.java              대기열+heartbeat 조합 연산
 │   └── adapter/
 │       ├── in/
 │       │   ├── web/
@@ -747,6 +743,7 @@ kr.jemi.zticket
 │       └── out/
 │           └── redis/
 │               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
+│               ├── HeartbeatRedisAdapter.java     Sorted Set 기반 heartbeat
 │               └── ActiveUserRedisAdapter.java    SET 기반 active 관리
 │
 ├── seat/                                       좌석 도메인 (독립)

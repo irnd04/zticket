@@ -1,0 +1,16 @@
+package kr.jemi.zticket.queue.application.port.out;
+
+import java.util.List;
+
+public interface HeartbeatPort {
+
+    void register(String uuid);
+
+    void refresh(String uuid);
+
+    List<Long> getScores(List<String> uuids);
+
+    List<String> findExpired(long cutoffTimestamp);
+
+    void removeAll(List<String> uuids);
+}
