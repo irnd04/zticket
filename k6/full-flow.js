@@ -14,7 +14,7 @@ export const options = {
     scenarios: {
         ticket_rush: {
             executor: 'per-vu-iterations',
-            vus: 6000,
+            vus: 5000,
             iterations: 1,          // VU당 1회만 실행
             maxDuration: '5m',
         },

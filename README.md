@@ -608,10 +608,10 @@ k6 run k6/full-flow.js
 
 두 스크립트를 동시에 실행하여 진입과 폴링을 동시에 부하를 줍니다.
 
-| 스크립트 | VU | 동작 | 종료 조건 |
-|---------|-----|------|----------|
-| `enter-stress.js` | 60 | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
-| `queue-stress.js` | 5,400 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
+| 스크립트 | VU    | 동작 | 종료 조건 |
+|---------|-------|------|----------|
+| `enter-stress.js` | 100   | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
+| `queue-stress.js` | 5,000 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 ```bash
 # 터미널 2개에서 동시에 실행
@@ -621,7 +621,7 @@ k6 run k6/queue-stress.js &
 
 ### 부하 테스트 결과
 
-> 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 앱 + k6 + Docker(Redis, MySQL, Prometheus, Grafana)를 동시에 실행한 환경.
+> 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 Docker Compose(App + Redis + MySQL + Prometheus + Grafana) + k6를 동시에 실행한 환경.
 > k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
 
 **테스트 조건**: enter-stress 60 VU + queue-stress 5,400 VU (합계 5,460 VU), 10분
@@ -630,32 +630,30 @@ k6 run k6/queue-stress.js &
 
 | 엔드포인트 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|-----|-----|-------|------|
-| `POST /api/queues/tokens` | ~259 req/s | 307ms | 401ms | 508ms | 1분에 ~1.5만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | ~22.9K req/s | 306ms | 406ms | 514ms | 5초 폴링 기준 **~11만 명** 동시 대기 |
-| **합계** | **~23.2K req/s** | | | | |
+| `POST /api/queues/tokens` | ~645 req/s | 29ms | 73ms | 109ms | 1분에 ~3.9만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` | ~31.6K req/s | 29ms | 73ms | 110ms | 5초 폴링 기준 **~15.8만 명** 동시 대기 |
+| **합계** | **~32.2K req/s** | | | | |
 
 #### 시스템 리소스
 
 | 지표 | 값 | 비고 |
 |------|-----|------|
-| Virtual Threads | 요청당 생성·소멸 (~23.2K/s) | Carrier thread 위에서 동작 |
-| Process CPU | ~34% | 앱 자체는 여유 |
-| System CPU | ~89% | k6와 CPU 경합 (병목) |
-| JVM Heap | ~4.1GB | max 9GB, 여유 |
+| Virtual Threads | 요청당 생성·소멸 (~32.2K/s) | Carrier thread 위에서 동작 |
+| JVM Heap | ~1.3GB | 여유 |
 
 #### Redis
 
 | 명령 | ops/s | p95 | p99 | p99.9 | 용도 |
 |------|-------|-----|-----|-------|------|
-| ZADD | ~23.7K | 58ms | 89ms | 208ms | 대기열 진입 + heartbeat 갱신 |
-| ZRANK | ~23.4K | 56ms | 86ms | 153ms | 순번 조회 |
-| EXISTS | ~23.1K | 56ms | 88ms | 156ms | active 토큰 확인 |
-| SCAN | ~0.2 | 84ms | 88ms | 89ms | active 유저 카운트 |
-| ZRANGEBYSCORE | ~0.1 | 60ms | 61ms | 61ms | 잠수 유저 탐색 + 입장 peek |
-| ZREM | ~0.2 | 65ms | 67ms | 67ms | 잠수 유저 제거 + 입장 remove |
-| **전체** | **~70K** | | | | |
+| ZADD | ~32.9K | 6ms | 15ms | 30ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | ~32.2K | 6ms | 16ms | 30ms | 순번 조회 |
+| EXISTS | ~31.6K | 7ms | 15ms | 30ms | active 토큰 확인 |
+| SCAN | ~0.2 | 4ms | 4ms | 4ms | active 유저 카운트 |
+| ZRANGEBYSCORE | ~0.4 | 3ms | 3ms | 4ms | 잠수 유저 탐색 + 입장 peek |
+| ZREM | ~0.6 | 5ms | 6ms | 6ms | 잠수 유저 제거 + 입장 remove |
+| **전체** | **~97K** | | | | |
 
-병목은 System CPU ~89% (k6와 CPU 경합)이며, Redis와 DB는 여유. 분리 환경에서는 더 높은 수치가 나올 것으로 예상됩니다.
+병목은 **로컬 CPU 포화**(시스템 CPU 99%)입니다. 단일 머신에서 App + k6 + Redis + Prometheus + Grafana를 동시에 실행하여 CPU를 거의 다 사용합니다. 서버 측(앱, Redis)은 여유가 있으므로, 부하 생성기를 별도 머신으로 분리하면 더 높은 처리량이 나올 것으로 예상됩니다.
 
 ---
 
