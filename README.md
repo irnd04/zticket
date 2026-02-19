@@ -75,12 +75,15 @@ flowchart TD
 sequenceDiagram
     participant U as 사용자
     participant Q as QueueService
+    participant O as WaitingQueueOperator
     participant R as Redis
 
     U->>Q: POST /api/queues/tokens
-    Q->>R: ZADD waiting_queue (score=진입시각)
-    Q->>R: ZADD waiting_queue_heartbeat (score=진입시각)
-    R-->>Q: rank
+    Q->>O: enqueue(uuid)
+    O->>R: ZADD waiting_queue (score=진입시각)
+    O->>R: ZADD waiting_queue_heartbeat (score=진입시각)
+    R-->>O: rank
+    O-->>Q: rank
     Q-->>U: { uuid, rank }
 
     loop 5초 폴링
@@ -90,9 +93,13 @@ sequenceDiagram
         else 잔여 좌석 = 0
             Q-->>U: SOLD_OUT → 매진 안내
         else 대기 중
-            Q->>R: ZRANK waiting_queue
-            Q->>R: ZADD waiting_queue_heartbeat (score=현재시각)
-            R-->>Q: rank
+            Q->>O: getRank(uuid)
+            O->>R: ZRANK waiting_queue
+            O->>R: ZMSCORE waiting_queue_heartbeat (생존 확인)
+            R-->>O: rank
+            O-->>Q: rank (만료 시 null)
+            Q->>O: refresh(uuid)
+            O->>R: ZADD waiting_queue_heartbeat (score=현재시각)
             Q-->>U: WAITING (현재 순번)
         end
     end
@@ -118,11 +125,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[ExpiredQueueCleanupScheduler 매 30초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff<br/>→ 마지막 폴링이 60초 이상 지난 유저 조회"]
-    B --> C{잠수 유저 있음?}
-    C -- 없음 --> END[종료]
-    C -- 있음 --> D[ZREM waiting_queue_heartbeat 에서 제거]
-    D --> E[ZREM waiting_queue 에서 제거]
+    A[ExpiredQueueCleanupScheduler 매 30초] --> B[QueueService.removeExpired]
+    B --> C["WaitingQueueOperator.findExpired()<br/>ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff<br/>→ 마지막 폴링이 60초 이상 지난 유저 조회"]
+    C --> D{잠수 유저 있음?}
+    D -- 없음 --> END[종료]
+    D -- 있음 --> E["WaitingQueueOperator.removeAll()<br/>ZREM waiting_queue + ZREM waiting_queue_heartbeat"]
     E --> END
 
     style A fill:#f9f,stroke:#333
@@ -135,6 +142,7 @@ flowchart TD
 sequenceDiagram
     participant S as AdmissionScheduler<br/>(매 5초)
     participant Q as QueueService
+    participant O as WaitingQueueOperator
     participant R as Redis
 
     S->>Q: admitBatch()
@@ -144,17 +152,20 @@ sequenceDiagram
 
     Note over Q: toAdmit = min(batchSize, 입장 가능 인원, 잔여 좌석 - active 유저)
 
-    Q->>R: ZRANGE waiting_queue 0 (toAdmit*2-1)
-    R-->>Q: [uuid1, uuid2, ...] (FIFO 순서 후보)
-    Q->>R: ZMSCORE waiting_queue_heartbeat uuid1 uuid2 ...
-    R-->>Q: [score1, score2, ...]
-    Note right of R: peek: FIFO 순서 후보 → heartbeat 필터링 (삭제 안 함)
+    Q->>O: peekAlive(toAdmit)
+    O->>R: ZRANGE waiting_queue 0 (toAdmit*2-1)
+    R-->>O: [uuid1, uuid2, ...] (FIFO 순서 후보)
+    O->>R: ZMSCORE waiting_queue_heartbeat uuid1 uuid2 ...
+    R-->>O: [score1, score2, ...]
+    Note right of O: heartbeat 필터링 (삭제 안 함)
+    O-->>Q: 살아있는 uuid 목록
 
     Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
     Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
 
-    Q->>R: ZREM waiting_queue {uuids}
-    Q->>R: ZREM waiting_queue_heartbeat {uuids}
+    Q->>O: removeAll(uuids)
+    O->>R: ZREM waiting_queue {uuids}
+    O->>R: ZREM waiting_queue_heartbeat {uuids}
     Note right of R: remove: activate 후에야 큐에서 제거
 ```
 
@@ -339,7 +350,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
 | 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
 | 잠수 제거 (`ExpiredQueueCleanupScheduler`, 30초) | ZREM | ZRANGEBYSCORE + ZREM |
-| 입장 (`AdmissionScheduler`, 5초) | ZREM | ZRANGEBYSCORE + ZREM |
+| 입장 (`AdmissionScheduler`, 5초) | ZRANGE(peek) + ZREM | ZMSCORE(필터) + ZREM |
 
 **왜 Sorted Set 2개?**
 - `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
