@@ -122,7 +122,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[ExpiredQueueCleanupScheduler 매 30초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff<br/>→ 마지막 폴링이 30초 이상 지난 유저 조회"]
+    A[ExpiredQueueCleanupScheduler 매 30초] --> B["ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff<br/>→ 마지막 폴링이 60초 이상 지난 유저 조회"]
     B --> C{잠수 유저 있음?}
     C -- 없음 --> END[종료]
     C -- 있음 --> D[ZREM waiting_queue_heartbeat 에서 제거]
@@ -869,7 +869,7 @@ zticket:
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: ${zticket.seat.total-count}  # 동시 active 유저 상한 (= 총 좌석 수)
     batch-size: 100         # 주기당 최대 입장 인원
-    queue-ttl-seconds: 30   # 대기열 잠수 제거 기준 (30초간 폴링 없으면 제거)
+    queue-ttl-seconds: 60   # 대기열 잠수 제거 기준 (60초간 폴링 없으면 제거)
     cleanup-interval-ms: 30000 # 잠수 유저 제거 스케줄러 주기 (30초)
   seat:
     total-count: 1000       # 총 좌석 수
