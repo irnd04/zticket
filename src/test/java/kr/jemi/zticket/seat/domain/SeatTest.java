@@ -33,6 +33,15 @@ class SeatTest {
             assertThatThrownBy(() -> new Seat(SeatStatus.PAID, null))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+
+        @Test
+        @DisplayName("HELD 좌석의 owner가 빈 문자열이면 예외가 발생한다")
+        void held_with_blank_owner_throws() {
+            assertThatThrownBy(() -> new Seat(SeatStatus.HELD, ""))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> new Seat(SeatStatus.HELD, "   "))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Nested
