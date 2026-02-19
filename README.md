@@ -154,11 +154,11 @@ sequenceDiagram
 
     Q->>O: peekAlive(toAdmit)
     O->>R: ZRANGE waiting_queue 0 (toAdmit*2-1)
-    R-->>O: [uuid1, uuid2, ...] (FIFO 순서 후보)
+    R-->>O: 2배수 후보 (FIFO 순서)
     O->>R: ZMSCORE waiting_queue_heartbeat uuid1 uuid2 ...
     R-->>O: [score1, score2, ...]
-    Note right of O: heartbeat 필터링 (삭제 안 함)
-    O-->>Q: 살아있는 uuid 목록
+    Note right of O: heartbeat 필터링 → toAdmit명까지만 반환
+    O-->>Q: 살아있는 uuid 목록 (최대 toAdmit명)
 
     Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
     Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
