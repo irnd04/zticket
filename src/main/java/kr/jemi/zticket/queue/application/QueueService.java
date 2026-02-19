@@ -5,6 +5,7 @@ import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
 import kr.jemi.zticket.queue.application.port.in.EnterQueueUseCase;
 import kr.jemi.zticket.queue.application.port.in.GetQueueTokenUseCase;
+import kr.jemi.zticket.queue.application.port.in.RemoveExpiredUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.queue.application.port.out.WaitingQueuePort;
 import kr.jemi.zticket.queue.domain.QueueToken;
@@ -16,7 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase {
+public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase, RemoveExpiredUseCase {
 
     private final WaitingQueuePort waitingQueuePort;
     private final ActiveUserPort activeUserPort;
@@ -69,10 +70,12 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     }
 
     @Override
-    public void admitBatch() {
-        // 폴링하지 않는 잠수 유저 제거 (score < now - waitingTtl)
-        waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+    public long removeExpired() {
+        return waitingQueuePort.removeExpired(System.currentTimeMillis() - queueTtlMs);
+    }
 
+    @Override
+    public void admitBatch() {
         // 현재 active 유저 수를 확인하고 빈 슬롯만큼만 입장
         int currentActive = activeUserPort.countActive();
         int availableSlots = Math.max(0, maxActiveUsers - currentActive);
@@ -85,8 +88,9 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
             return;
         }
 
-        // 1. peek: 큐에서 조회만 (삭제 안 함 → crash 시 유실 없음)
-        List<String> candidates = waitingQueuePort.peekBatch(toAdmit);
+        // 1. peek: heartbeat 기준으로 살아있는 유저만 조회 (삭제 안 함 → crash 시 유실 없음)
+        long cutoff = System.currentTimeMillis() - queueTtlMs;
+        List<String> candidates = waitingQueuePort.peekBatch(toAdmit, cutoff);
         if (candidates.isEmpty()) {
             return;
         }

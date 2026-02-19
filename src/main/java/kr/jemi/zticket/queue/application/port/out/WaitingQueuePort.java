@@ -8,7 +8,7 @@ public interface WaitingQueuePort {
 
     Long getRank(String uuid);
 
-    List<String> peekBatch(int count);
+    List<String> peekBatch(int count, long cutoffTimestamp);
 
     void removeBatch(List<String> uuids);
 

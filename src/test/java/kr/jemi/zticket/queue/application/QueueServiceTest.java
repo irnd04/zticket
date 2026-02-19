@@ -193,21 +193,20 @@ class QueueServiceTest {
     class AdmitBatch {
 
         @Test
-        @DisplayName("removeExpired → peek → activate → remove 순서로 실행된다")
+        @DisplayName("peek → activate → remove 순서로 실행된다")
         void shouldExecuteThreePhasesInOrder() {
             // given
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(candidates);
+            given(waitingQueuePort.peekBatch(eq(BATCH_SIZE), anyLong())).willReturn(candidates);
 
             // when
             queueService.admitBatch();
 
-            // then - 순서 검증: removeExpired → peek → activateBatch → remove
+            // then - 순서 검증: peek → activateBatch → remove
             InOrder inOrder = inOrder(waitingQueuePort, activeUserPort);
-            inOrder.verify(waitingQueuePort).removeExpired(anyLong());
-            inOrder.verify(waitingQueuePort).peekBatch(BATCH_SIZE);
+            inOrder.verify(waitingQueuePort).peekBatch(eq(BATCH_SIZE), anyLong());
             inOrder.verify(activeUserPort).activateBatch(candidates, ACTIVE_TTL_SECONDS);
             inOrder.verify(waitingQueuePort).removeBatch(candidates);
         }
@@ -220,7 +219,7 @@ class QueueServiceTest {
             List<String> candidates = List.of("uuid-1");
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(anyInt())).willReturn(candidates);
+            given(waitingQueuePort.peekBatch(anyInt(), anyLong())).willReturn(candidates);
 
             // when
             queueService.admitBatch();
@@ -246,7 +245,7 @@ class QueueServiceTest {
             queueService.admitBatch();
 
             // then - peek도 호출하지 않음
-            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+            then(waitingQueuePort).should(never()).peekBatch(anyInt(), anyLong());
             then(activeUserPort).should(never()).activate(anyString(), anyLong());
         }
 
@@ -257,13 +256,13 @@ class QueueServiceTest {
             given(activeUserPort.countActive()).willReturn(480);
             given(seatService.getAvailableCount()).willReturn(1000);
             List<String> candidates = List.of("uuid-1", "uuid-2");
-            given(waitingQueuePort.peekBatch(20)).willReturn(candidates);
+            given(waitingQueuePort.peekBatch(eq(20), anyLong())).willReturn(candidates);
 
             // when
             queueService.admitBatch();
 
             // then
-            then(waitingQueuePort).should().peekBatch(20);
+            then(waitingQueuePort).should().peekBatch(eq(20), anyLong());
         }
 
         @Test
@@ -273,13 +272,13 @@ class QueueServiceTest {
             given(activeUserPort.countActive()).willReturn(3);
             given(seatService.getAvailableCount()).willReturn(5);
             List<String> candidates = List.of("uuid-1", "uuid-2");
-            given(waitingQueuePort.peekBatch(2)).willReturn(candidates);
+            given(waitingQueuePort.peekBatch(eq(2), anyLong())).willReturn(candidates);
 
             // when
             queueService.admitBatch();
 
             // then - 잔여 좌석(5) - active(3) = 2명만 입장
-            then(waitingQueuePort).should().peekBatch(2);
+            then(waitingQueuePort).should().peekBatch(eq(2), anyLong());
             then(activeUserPort).should().activateBatch(candidates, ACTIVE_TTL_SECONDS);
         }
 
@@ -294,7 +293,7 @@ class QueueServiceTest {
             queueService.admitBatch();
 
             // then - 좌석 부족으로 입장 없음
-            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+            then(waitingQueuePort).should(never()).peekBatch(anyInt(), anyLong());
         }
 
         @Test
@@ -307,7 +306,7 @@ class QueueServiceTest {
             queueService.admitBatch();
 
             // then - Math.max(0, 500 - 510) = 0이므로 아무것도 안 함
-            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+            then(waitingQueuePort).should(never()).peekBatch(anyInt(), anyLong());
         }
     }
 
@@ -321,13 +320,13 @@ class QueueServiceTest {
             // given - active 0명, 잔여 좌석 1000개 → 슬롯 500개이지만 batchSize=100 제한
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of("uuid-1"));
+            given(waitingQueuePort.peekBatch(eq(BATCH_SIZE), anyLong())).willReturn(List.of("uuid-1"));
 
             // when
             queueService.admitBatch();
 
             // then - peekBatch에 BATCH_SIZE(100)가 전달됨
-            then(waitingQueuePort).should().peekBatch(BATCH_SIZE);
+            then(waitingQueuePort).should().peekBatch(eq(BATCH_SIZE), anyLong());
         }
 
         @Test
@@ -336,50 +335,32 @@ class QueueServiceTest {
             // given - active 470명 → 빈 슬롯 30개 < batchSize(100)
             given(activeUserPort.countActive()).willReturn(470);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(30)).willReturn(List.of("uuid-1"));
+            given(waitingQueuePort.peekBatch(eq(30), anyLong())).willReturn(List.of("uuid-1"));
 
             // when
             queueService.admitBatch();
 
             // then - batchSize가 아닌 빈 슬롯(30)이 전달됨
-            then(waitingQueuePort).should().peekBatch(30);
+            then(waitingQueuePort).should().peekBatch(eq(30), anyLong());
         }
     }
 
     @Nested
-    @DisplayName("admitBatch() - 잠수 유저 제거")
-    class AdmitBatchGhostRemoval {
+    @DisplayName("removeExpired() - 잠수 유저 제거 (별도 스케줄러)")
+    class RemoveExpired {
 
         @Test
-        @DisplayName("admitBatch 시 heartbeat 만료 유저를 먼저 제거한다")
-        void shouldRemoveExpiredBeforeAdmitting() {
+        @DisplayName("cutoff 기준으로 만료 유저를 제거하고 제거 수를 반환한다")
+        void shouldRemoveExpiredUsers() {
             // given
-            given(activeUserPort.countActive()).willReturn(0);
-            given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(anyInt())).willReturn(List.of("uuid-1"));
+            given(waitingQueuePort.removeExpired(anyLong())).willReturn(5L);
 
             // when
-            queueService.admitBatch();
+            long removed = queueService.removeExpired();
 
-            // then - removeExpired가 peekBatch보다 먼저 호출됨
-            InOrder inOrder = inOrder(waitingQueuePort);
-            inOrder.verify(waitingQueuePort).removeExpired(anyLong());
-            inOrder.verify(waitingQueuePort).peekBatch(anyInt());
-        }
-
-        @Test
-        @DisplayName("슬롯이 없어도 잠수 유저는 제거한다")
-        void shouldRemoveExpiredEvenWhenNoSlots() {
-            // given - active가 꽉 차있음
-            given(activeUserPort.countActive()).willReturn(500);
-
-            // when
-            queueService.admitBatch();
-
-            // then - removeExpired는 실행됨
+            // then
+            assertThat(removed).isEqualTo(5L);
             then(waitingQueuePort).should().removeExpired(anyLong());
-            // peek은 호출 안 됨
-            then(waitingQueuePort).should(never()).peekBatch(anyInt());
         }
     }
 
@@ -393,7 +374,7 @@ class QueueServiceTest {
             // given
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueuePort.peekBatch(eq(BATCH_SIZE), anyLong())).willReturn(List.of());
 
             // when
             queueService.admitBatch();
@@ -419,12 +400,12 @@ class QueueServiceTest {
             // 1주기
             given(activeUserPort.countActive()).willReturn(500);
             queueService.admitBatch();
-            then(waitingQueuePort).should(never()).peekBatch(anyInt());
+            then(waitingQueuePort).should(never()).peekBatch(anyInt(), anyLong());
 
             // 2주기 - TTL 만료로 active 감소
             given(activeUserPort.countActive()).willReturn(490);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueuePort.peekBatch(10)).willReturn(
+            given(waitingQueuePort.peekBatch(eq(10), anyLong())).willReturn(
                     List.of("new-1", "new-2", "new-3"));
 
             queueService.admitBatch();

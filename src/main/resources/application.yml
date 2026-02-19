@@ -70,6 +70,7 @@ zticket:
     max-active-users: ${zticket.seat.total-count}
     batch-size: 100
     queue-ttl-seconds: 30
+    cleanup-interval-ms: 30000
   seat:
     total-count: 1000
     hold-ttl-seconds: 300
