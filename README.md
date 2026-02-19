@@ -133,7 +133,7 @@ sequenceDiagram
 
     S->>Q: admitBatch()
 
-    Note over Q: 1단계: 잠수 유저 제거
+    Note over Q: removeExpired: 잠수 유저 제거
     loop findExpired 결과가 요청 size보다 작을 때까지
         Q->>O: findExpired(5000)
         O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff LIMIT 0 5000
@@ -142,7 +142,7 @@ sequenceDiagram
         O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
     end
 
-    Note over Q: 2단계: 입장 인원 계산
+    Note over Q: 입장 인원 계산
     Q->>A: countActive()
     A->>R: SCAN active_user:*
     R-->>A: currentActive
@@ -150,20 +150,20 @@ sequenceDiagram
     SS-->>Q: remainingSeats
     Note over Q: toAdmit = min(batchSize, 빈 슬롯, 잔여 좌석 - active 유저)
 
-    Note over Q: 3단계: peek → activate → remove
+    Note over Q: peek
     Q->>O: peek(toAdmit)
     O->>R: ZRANGE waiting_queue 0 (toAdmit-1)
     R-->>O: FIFO 순서 후보
     O-->>Q: uuid 목록
 
+    Note over Q: activate
     Q->>A: activateBatch(uuids, ttl)
     A->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
-    Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
 
+    Note over Q: remove
     Q->>O: removeAll(uuids)
     O->>R: ZREM waiting_queue {uuids}
     O->>R: ZREM waiting_queue_heartbeat {uuids}
-    Note right of R: remove: activate 후에야 큐에서 제거
 ```
 
 **removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
