@@ -95,9 +95,8 @@ sequenceDiagram
         else 대기 중
             Q->>O: getRank(uuid)
             O->>R: ZRANK waiting_queue
-            O->>R: ZMSCORE waiting_queue_heartbeat (생존 확인)
             R-->>O: rank
-            O-->>Q: rank (만료 시 null)
+            O-->>Q: rank (없으면 null)
             Q->>O: refresh(uuid)
             O->>R: ZADD waiting_queue_heartbeat (score=현재시각)
             Q-->>U: WAITING (현재 순번)
@@ -128,20 +127,27 @@ sequenceDiagram
     participant S as AdmissionScheduler<br/>(매 5초)
     participant Q as QueueService
     participant O as WaitingQueueOperator
+    participant A as ActiveUserPort
+    participant SS as SeatService
     participant R as Redis
 
     S->>Q: admitBatch()
 
     Note over Q: 1단계: 잠수 유저 제거
-    Q->>O: findExpired()
-    O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff
-    R-->>O: 잠수 uuid 목록
-    Q->>O: removeAll(expiredUuids)
-    O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
+    loop findExpired 결과가 요청 size보다 작을 때까지
+        Q->>O: findExpired(5000)
+        O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff LIMIT 0 5000
+        R-->>O: 잠수 uuid 목록
+        Q->>O: removeAll(expiredUuids)
+        O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
+    end
 
     Note over Q: 2단계: 입장 인원 계산
-    Q->>R: SCAN active_user:* → 현재 active 수 확인
-    R-->>Q: currentActive
+    Q->>A: countActive()
+    A->>R: SCAN active_user:*
+    R-->>A: currentActive
+    Q->>SS: getAvailableCount()
+    SS-->>Q: remainingSeats
     Note over Q: toAdmit = min(batchSize, 빈 슬롯, 잔여 좌석 - active 유저)
 
     Note over Q: 3단계: peek → activate → remove
@@ -150,7 +156,8 @@ sequenceDiagram
     R-->>O: FIFO 순서 후보
     O-->>Q: uuid 목록
 
-    Q->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
+    Q->>A: activateBatch(uuids, ttl)
+    A->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
     Note right of R: activate: 파이프라이닝으로 일괄 입장 처리
 
     Q->>O: removeAll(uuids)
@@ -159,9 +166,9 @@ sequenceDiagram
     Note right of R: remove: activate 후에야 큐에서 제거
 ```
 
-**removeExpireUuids → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
+**removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. peek 후 서버가 죽어도 대기열에 그대로 남아 유실 없음. activate는 멱등 연산이라 재실행해도 TTL만 갱신. activate 완료 후에야 큐에서 제거하므로 "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
-### 4. 구매 플로우: DB PAID 저장까지
+### 3. 구매 플로우: DB PAID 저장까지
 
 > 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
 
@@ -203,7 +210,7 @@ sequenceDiagram
 
 **DB PAID = Source of Truth**: 클라이언트는 DB에 PAID가 저장되면 구매 성공입니다. 이후 Redis 동기화는 비동기로 처리되며, 실패해도 구매 결과에 영향을 주지 않습니다.
 
-### 5. 비동기 Redis 동기화: @Async 이벤트
+### 4. 비동기 Redis 동기화: @Async 이벤트
 
 DB에 PAID 저장 후, `TicketPaidEvent`가 발행됩니다. `TicketPaidEventListener`가 `@Async`로 후처리를 수행합니다. 실패해도 구매 응답에 영향이 없습니다.
 
@@ -227,7 +234,7 @@ sequenceDiagram
     L->>R: DEL active_user:{token}
 ```
 
-### 6. 동기화 배치 복구: PAID 티켓 재동기화
+### 5. 동기화 배치 복구: PAID 티켓 재동기화
 
 5단계 비동기 처리가 실패하면 DB에 PAID 상태로 남습니다. 동기화 배치(`SyncScheduler`, 매 1분)가 이를 감지하여 동일한 `TicketPaidEvent`를 발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
@@ -347,7 +354,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 - 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
 - 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
 
-#### 잠수 유저 제거 + 입장 제어 (removeExpireUuids → peek → activate → remove)
+#### 잠수 유저 제거 + 입장 제어 (removeExpired → peek → activate → remove)
 
 `AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리한다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
 
@@ -357,9 +364,9 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 
 **active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
 
-**removeExpireUuids → peek → activate → remove 4단계 분리**:
+**removeExpired → peek → activate → remove 4단계 분리**:
 
-- **removeExpireUuids**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거. 이후 peek이 단순해진다.
+- **removeExpired**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거. 이후 peek이 단순해진다.
 - **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만. 서버가 죽어도 대기열에 그대로 남아서 유실 없음.
 - **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
 - **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
