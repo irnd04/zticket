@@ -8,10 +8,11 @@ const enterSuccess = new Counter('enter_success');
 const enterFail = new Counter('enter_fail');
 
 export const options = {
+    discardResponseBodies: true,
     scenarios: {
         enter_stress: {
             executor: 'constant-vus',
-            vus: 100,
+            vus: 500,
             duration: '10m',
         },
     },

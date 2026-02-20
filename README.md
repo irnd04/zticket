@@ -647,16 +647,16 @@ k6 run k6/queue-stress.js &
 
 ## 모니터링 (Prometheus + Grafana)
 
-Spring Boot Actuator + Micrometer로 메트릭을 수집하고, Prometheus + Grafana로 시각화합니다.
+Spring Boot Actuator + Micrometer + Redis Exporter로 메트릭을 수집하고, Prometheus + Grafana로 시각화합니다.
 
 ### 구성
 
 ```
 App (Actuator /actuator/prometheus)
-    │
-    │  10초 주기 스크래핑
-    ▼
-Prometheus (:9090)
+    │                                    Redis Exporter (:9121)
+    │  10초 주기 스크래핑                       │
+    ▼                                         ▼
+Prometheus (:9090)  ◄─────────────────────────┘
     │
     │  데이터소스
     ▼
@@ -667,24 +667,58 @@ Grafana (:3000)  →  ZTicket 대시보드 (자동 프로비저닝)
 
 ### 대시보드 패널
 
+Row 단위로 그룹핑되어 있으며, 각 Row를 클릭하면 접고 펼 수 있습니다.
+
+#### HTTP
+
 | 패널 | 설명 |
 |------|------|
 | HTTP Request Rate (req/s) | 엔드포인트별 초당 요청 수 |
-| HTTP Error Rate (4xx + 5xx) | 4xx/5xx 비율 |
-| HTTP Response Time (p95) | 상위 5% 응답 시간 |
-| HTTP Response Time (p99) | 상위 1% 응답 시간 |
-| HTTP Response Time (p99.9) | 상위 0.1% 응답 시간 |
+| HTTP Error Rate (4xx + 5xx) | 4xx/5xx 에러 요청 비율 |
+| HTTP Response Time (p95 / p99 / p99.9) | 응답 시간 백분위수 |
 | Logback Error / Warn Events | 애플리케이션 에러/경고 발생률 |
-| Redis Command Rate (ops/s) | 명령별 초당 처리량 |
-| Redis Latency (p95) | 상위 5% 명령 응답 시간 |
-| Redis Latency (p99) | 상위 1% 명령 응답 시간 |
-| Redis Latency (p99.9) | 상위 0.1% 명령 응답 시간 |
-| HikariCP Acquire Time | DB 커넥션 획득 대기 시간 |
-| HikariCP Connection Timeout | 커넥션 획득 타임아웃 |
-| CPU Usage | process/system CPU 사용률 |
-| JVM Heap Memory | 힙 메모리 사용량 |
-| GC Pause Time | GC 멈춤 시간 |
-| JVM Threads | 라이브/피크 스레드 수 |
+
+#### App - JVM
+
+| 패널 | 설명 |
+|------|------|
+| CPU Usage | process CPU(앱)와 system CPU(전체) 사용률 |
+| JVM Heap Memory | 힙 메모리 used / committed / max(-Xmx) |
+| JVM Threads | 라이브/피크 플랫폼 스레드 수 (VT는 미포함) |
+
+#### App - GC
+
+| 패널 | 설명 |
+|------|------|
+| GC STW Duration | GC 1회당 평균/최대 Stop-The-World 시간 |
+| GC Count Rate | 초당 GC 발생 횟수 (action/cause별) |
+| Full GC / Humongous Allocation Count | Major GC와 Humongous 할당 발생률. 0이 아니면 주의 |
+| Heap Usage After GC | GC 후 Old 영역 사용률. 90% 이상이면 힙 부족 또는 메모리 누수 의심 |
+| GC Overhead | 전체 CPU 시간 중 GC에 소비되는 비율. 10% 이상이면 주의, 25% 이상이면 심각 |
+| Memory Promoted / Allocated Rate | Eden 할당 속도(allocated)와 Old 승격 속도(promoted). 승격이 많으면 Full GC 위험 |
+
+#### App - Database Pool
+
+| 패널 | 설명 |
+|------|------|
+| HikariCP Acquire Time | DB 커넥션 획득까지 평균/최대 대기 시간 |
+| HikariCP Connection Timeout | 커넥션 획득 타임아웃 발생률. 0이 아니면 풀 크기 부족 |
+
+#### Redis - Client (Lettuce)
+
+| 패널 | 설명 |
+|------|------|
+| Redis Command Rate (ops/s) | 앱에서 Redis로 보내는 명령별 초당 처리량 |
+| Redis Latency (p95 / p99 / p99.9) | 앱이 관측한 Redis 명령 응답 시간 백분위수 |
+
+#### Redis - Server
+
+| 패널 | 설명 |
+|------|------|
+| Redis CPU Usage | Redis 서버 CPU 사용률 (total = user + system). user는 명령 처리, system은 네트워크 I/O |
+| Redis Memory | Redis 메모리 사용량 vs maxmemory 한도 |
+| Redis Connected Clients | 연결된 클라이언트 수와 블로킹된 클라이언트 수 |
+| Redis Commands/s & Hit Rate | Redis 서버 초당 명령 처리량과 키 조회 적중률 |
 
 ### Actuator 엔드포인트
 

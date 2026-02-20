@@ -7,11 +7,20 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/zticket?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
       SPRING_DATA_REDIS_HOST: redis
+      JAVA_TOOL_OPTIONS: "-Xms2g -Xmx2g"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '6.0'
+          memory: 4G
+        reservations:
+          cpus: '6.0'
+          memory: 4G
 
   mysql:
     image: mysql:8.0
@@ -39,12 +48,32 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '1.5'
+          memory: 1G
+    command: redis-server --maxmemory 700mb --maxmemory-policy noeviction
 
   redisinsight:
     image: redis/redisinsight:latest
     container_name: zticket-redisinsight
     ports:
       - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: zticket-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
     depends_on:
       redis:
         condition: service_healthy
@@ -74,6 +103,40 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
+
+  k6-queue:
+    image: grafana/k6:latest
+    container_name: zticket-k6-queue
+    profiles: ["k6"]
+    volumes:
+      - ./k6:/scripts
+    environment:
+      BASE_URL: http://app:8080
+    command: run --no-summary /scripts/queue-stress.js
+    depends_on:
+      - app
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 3G
+
+  k6-enter:
+    image: grafana/k6:latest
+    container_name: zticket-k6-enter
+    profiles: ["k6"]
+    volumes:
+      - ./k6:/scripts
+    environment:
+      BASE_URL: http://app:8080
+    command: run --no-summary /scripts/enter-stress.js
+    depends_on:
+      - app
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
 volumes:
   mysql-data:

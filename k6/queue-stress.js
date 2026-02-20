@@ -9,10 +9,11 @@ const pollFail = new Counter('poll_fail');
 const activated = new Counter('activated');
 
 export const options = {
+    discardResponseBodies: true,
     scenarios: {
         queue_stress: {
             executor: 'constant-vus',
-            vus: 5000,
+            vus: 3000,
             duration: '10m',
         },
     },
@@ -26,6 +27,7 @@ export default function () {
     // 토큰 발급 (VU당 1회)
     const enterRes = http.post(`${BASE_URL}/api/queues/tokens`, null, {
         headers: { 'Content-Type': 'application/json' },
+        responseType: 'text',
     });
 
     const entered = check(enterRes, {
@@ -37,7 +39,9 @@ export default function () {
 
     // ACTIVE될 때까지 폴링
     while (true) {
-        const res = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`);
+        const res = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`, {
+            responseType: 'text',
+        });
 
         const ok = check(res, {
             'poll: status 200': (r) => r.status === 200,
