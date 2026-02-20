@@ -13,7 +13,7 @@ export const options = {
     scenarios: {
         queue_stress: {
             executor: 'constant-vus',
-            vus: 1500,
+            vus: 2000,
             duration: '10m',
         },
     },

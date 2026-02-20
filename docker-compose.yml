@@ -7,7 +7,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/zticket?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
       SPRING_DATA_REDIS_HOST: redis
-      JAVA_TOOL_OPTIONS: "-Xms2g -Xmx2g"
+      JAVA_TOOL_OPTIONS: "-Xms3g -Xmx3g"
     depends_on:
       mysql:
         condition: service_healthy
@@ -17,10 +17,10 @@ services:
       resources:
         limits:
           cpus: '6.0'
-          memory: 4G
+          memory: 6G
         reservations:
           cpus: '6.0'
-          memory: 4G
+          memory: 6G
 
   mysql:
     image: mysql:8.0
@@ -54,7 +54,7 @@ services:
           cpus: '1.0'
           memory: 1G
         reservations:
-          cpus: '1.5'
+          cpus: '1.0'
           memory: 1G
     command: redis-server --maxmemory 700mb --maxmemory-policy noeviction
 
@@ -112,14 +112,14 @@ services:
       - ./k6:/scripts
     environment:
       BASE_URL: http://app:8080
-    command: run --no-summary /scripts/queue-stress.js
+    command: run --no-summary --no-thresholds /scripts/queue-stress.js
     depends_on:
       - app
     deploy:
       resources:
         limits:
-          cpus: '3.0'
-          memory: 3G
+          cpus: '4.0'
+          memory: 2G
 
   k6-enter:
     image: grafana/k6:latest
@@ -129,7 +129,7 @@ services:
       - ./k6:/scripts
     environment:
       BASE_URL: http://app:8080
-    command: run --no-summary /scripts/enter-stress.js
+    command: run --no-summary --no-thresholds /scripts/enter-stress.js
     depends_on:
       - app
     deploy:

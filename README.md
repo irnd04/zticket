@@ -630,10 +630,10 @@ docker compose --profile k6-full-flow up -d
 
 두 스크립트를 동시에 실행하여 진입과 폴링을 동시에 부하를 줍니다.
 
-| 스크립트 | VU    | 동작 | 종료 조건 |
-|---------|-------|------|----------|
-| `enter-stress.js` | 250   | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
-| `queue-stress.js` | 1,500 | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
+| 스크립트 | VU    | CPU | Memory | 동작 | 종료 조건 |
+|---------|-------|-----|--------|------|----------|
+| `enter-stress.js` | 250 | 0.5코어 | 512M | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
+| `queue-stress.js` | 1,500 | 4코어 | 2G | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 Docker Compose profile로 실행합니다.
 
@@ -646,49 +646,49 @@ docker compose --profile k6-stress up -d
 > 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 Docker Compose(App + Redis + MySQL + Prometheus + Grafana) + k6를 동시에 실행한 환경.
 > k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
 
-#### App (CPU 6코어, Memory 4GB, Heap 2GB, G1GC 기본 설정)
+#### App (CPU 6코어, Memory 6GB, Heap 3GB, G1GC 기본 설정)
 
 | 항목 | 값 | 비고 |
 |------|------|------|
-| CPU | 89% | 6코어 대부분 사용 |
-| GC Overhead | 16.8% | CPU의 17%를 GC에 소비 |
-| GC STW (avg) | ~14ms | Young GC 1회당 평균 STW |
-| GC STW (max) | 40ms | |
-| GC 횟수 | ~12회/s | Young GC만 발생, Full GC 0회 |
-| Eden 할당 속도 | ~3.3GB/s | 단기 객체 생성 속도 |
+| CPU | 78% | 6코어 기준 |
+| GC Overhead | 3.1% | CPU의 3%를 GC에 소비 |
+| GC STW (avg) | ~11ms | Young GC 1회당 평균 STW |
+| GC STW (max) | 32ms | |
+| GC 횟수 | ~2.9회/s | Young GC만 발생, Full GC 0회 |
+| Eden 할당 속도 | ~4.4GB/s | 단기 객체 생성 속도 |
 
 #### HTTP
 
 | 엔드포인트 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|-----|-----|-------|------|
-| `POST /api/queues/tokens` | ~6.0K req/s | 88ms | 106ms | 166ms | 1분에 ~36만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | ~36.4K req/s | 88ms | 107ms | 163ms | 5초 폴링 기준 **~18.2만 명** 동시 대기 |
-| **합계** | **~42.4K req/s** | | | | |
+| `POST /api/queues/tokens` | ~6.4K req/s | 45ms | 55ms | 76ms | 1분에 ~38만 명 진입 가능 |
+| `GET /api/queues/tokens/{uuid}` | ~47.5K req/s | 46ms | 56ms | 79ms | 5초 폴링 기준 **~23.7만 명** 동시 대기 |
+| **합계** | **~53.8K req/s** | | | | |
 
-#### Redis (CPU 1코어, Memory 1GB, maxmemory 700MB)
+#### Redis (CPU 1.5코어, Memory 1GB, maxmemory 700MB)
 
 | 항목 | 값 | 비고 |
 |------|------|------|
-| CPU | 50% | 여유 있음 |
-| Memory | 88MB / 700MB | 여유 있음 |
+| CPU | 63% | 싱글 코어 기준 |
+| Memory | 94MB / 700MB | 여유 있음 |
 
 #### Redis 커맨드 (Lettuce 클라이언트 기준)
 
 | 명령 | ops/s | p95 | p99 | p99.9 | 용도 |
 |------|-------|-----|-----|-------|------|
-| ZADD | ~48.4K | 28ms | 33ms | 42ms | 대기열 진입 + heartbeat 갱신 |
-| ZRANK | ~42.4K | 26ms | 33ms | 41ms | 순번 조회 |
-| EXISTS | ~36.4K | 25ms | 32ms | 40ms | active 토큰 확인 |
-| SET | ~14 | - | - | - | active 토큰 등록 |
-| ZREM | ~2.8 | 24ms | 35ms | 39ms | 잠수 유저 제거 + 입장 remove |
-| ZRANGEBYSCORE | ~1.2 | 30ms | 33ms | 33ms | 잠수 유저 탐색 |
-| SCAN | ~0.2 | 13ms | 14ms | 14ms | active 유저 카운트 |
-| MGET | ~0.2 | 10ms | 11ms | 11ms | heartbeat score 조회 |
-| **전체** | **~127.2K** | | | | |
+| ZADD | ~60.2K | 10ms | 18ms | 27ms | 대기열 진입 + heartbeat 갱신 |
+| ZRANK | ~53.8K | 10ms | 16ms | 26ms | 순번 조회 |
+| EXISTS | ~47.5K | 10ms | 15ms | 24ms | active 토큰 확인 |
+| SET | ~0.4 | 15ms | 15ms | 15ms | active 토큰 등록 |
+| ZREM | ~2.8 | 11ms | 14ms | 15ms | 잠수 유저 제거 + 입장 remove |
+| ZRANGEBYSCORE | ~1.4 | 12ms | 20ms | 22ms | 잠수 유저 탐색 |
+| SCAN | ~0.2 | 20ms | 22ms | 22ms | active 유저 카운트 |
+| MGET | ~0.2 | 5ms | 5ms | 6ms | heartbeat score 조회 |
+| **전체** | **~161.5K** | | | | |
 
 #### 결론
 
-App CPU 89%, Redis CPU 50%로 병목은 App 쪽에 있습니다. 동일 스펙의 App 서버를 하나 더 두어 로드밸런싱하고, Redis CPU를 더 활용하면 간단하게 트래픽을 2배 정도는 더 수용할 수 있을 것으로 예상됩니다.
+App CPU 78%, Redis CPU 63%로 양쪽 모두 여유가 있습니다. 동일 스펙의 App 서버를 하나 더 두어 로드밸런싱하고, Redis CPU를 더 활용하면 간단하게 트래픽을 2배 정도는 더 수용할 수 있을 것으로 예상됩니다.
 
 ---
 

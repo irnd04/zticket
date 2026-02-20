@@ -22,7 +22,7 @@ public class SyncScheduler {
     @SchedulerLock(name = "syncPaidTickets",
             lockAtMostFor = "${zticket.sync.lock-at-most-for}",
             lockAtLeastFor = "${zticket.sync.lock-at-least-for}")
-    public void sync() {
+    public void syncPaidTickets() {
         try {
             syncTicketUseCase.syncPaidTickets();
         } catch (Exception e) {
