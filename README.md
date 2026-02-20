@@ -69,7 +69,7 @@ flowchart TD
 
 ## 핵심 플로우
 
-### 1. 대기열 플로우
+### 1. 대기열 진입
 
 ```mermaid
 sequenceDiagram
@@ -85,6 +85,18 @@ sequenceDiagram
     R-->>O: rank
     O-->>Q: rank
     Q-->>U: { uuid, rank }
+```
+
+- `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
+
+### 2. 대기열 폴링
+
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant Q as QueueService
+    participant O as WaitingQueueOperator
+    participant R as Redis
 
     loop 5초 폴링
         U->>Q: GET /api/queues/tokens/{uuid}
@@ -104,8 +116,7 @@ sequenceDiagram
     end
 ```
 
-- **진입 시**: `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
-- **폴링 시**: `waiting_queue_heartbeat`의 score만 현재 시각으로 갱신 (순서를 유지하기 위해 `waiting_queue`는 건드리지 않음)
+- `waiting_queue_heartbeat`의 score만 현재 시각으로 갱신 (순서를 유지하기 위해 `waiting_queue`는 건드리지 않음)
 - **SOLD_OUT 판정**: 잔여 좌석이 0이면 대기열 순번 조회 없이 즉시 SOLD_OUT 반환
 
 **시간복잡도** (N = 대기열 인원):
@@ -116,9 +127,9 @@ sequenceDiagram
 | 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
 | rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
 
-100만 명 대기 시 log(1M) ≈ 20. 폴링으로 추가되는 ZADD는 유저당 5초마다 1회이므로, 대기자 10만 명이면 ~20,000 ops/s 추가.
+100만 명 대기 시 log(1M) ≈ 20. 모든 연산이 O(log N)이므로 대기자 수가 늘어도 연산당 처리 시간은 완만하게 증가합니다.
 
-### 2. 입장 스케줄러 플로우
+### 3. 입장 스케줄러 플로우
 
 `AdmissionScheduler`(5초 주기)에서 **잠수 유저 제거 → 입장**을 한 번에 처리합니다.
 
@@ -168,7 +179,7 @@ sequenceDiagram
 
 **removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
 
-### 3. 구매 플로우: DB PAID 저장까지
+### 4. 구매 플로우: DB PAID 저장까지
 
 > 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
 
@@ -210,7 +221,7 @@ sequenceDiagram
 
 **DB PAID = Source of Truth**: 클라이언트는 DB에 PAID가 저장되면 구매 성공입니다. 이후 Redis 동기화는 비동기로 처리되며, 실패해도 구매 결과에 영향을 주지 않습니다.
 
-### 4. 비동기 Redis 동기화: @Async 이벤트
+### 5. 비동기 Redis 동기화: @Async 이벤트
 
 DB에 PAID 저장 후, `TicketPaidEvent`가 발행됩니다. `TicketPaidEventListener`가 `@Async`로 후처리를 수행합니다. 실패해도 구매 응답에 영향이 없습니다.
 
@@ -234,7 +245,7 @@ sequenceDiagram
     L->>R: DEL active_user:{token}
 ```
 
-### 5. 동기화 배치 복구: PAID 티켓 재동기화
+### 6. 동기화 배치 복구: PAID 티켓 재동기화
 
 5단계 비동기 처리가 실패하면 DB에 PAID 상태로 남습니다. 동기화 배치(`SyncScheduler`, 매 1분)가 이를 감지하여 동일한 `TicketPaidEvent`를 발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
