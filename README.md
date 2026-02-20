@@ -179,16 +179,16 @@ sequenceDiagram
 
 **removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
 
-### 4. 구매 플로우: DB PAID 저장까지
+### 4. 구매 플로우
 
 > 이 시스템에서는 별도 결제 게이트웨이(PG) 없이, **DB에 티켓을 INSERT하는 것 자체가 결제 완료**를 의미합니다. 실제 서비스라면 PG 연동이 2~3단계 사이에 추가되겠지만, 이 프로젝트는 대기열과 좌석 정합성에 집중하기 위해 결제 과정을 생략했습니다.
-
-구매 요청은 **동기 3단계**로 처리됩니다. DB에 PAID 티켓이 저장되는 것이 구매 확정이며, 이 시점에서 클라이언트에 응답이 나갑니다.
 
 ```mermaid
 sequenceDiagram
     participant C as 클라이언트
     participant T as TicketService
+    participant E as EventPublisher
+    participant L as TicketPaidEventListener<br/>(@Async)
     participant R as Redis
     participant DB as MySQL
 
@@ -216,22 +216,7 @@ sequenceDiagram
 
     T-->>C: PAID 티켓 반환 (구매 확정)
 
-    Note over T: TicketPaidEvent 발행 → 비동기 후처리로 위임
-```
-
-**DB PAID = Source of Truth**: 클라이언트는 DB에 PAID가 저장되면 구매 성공입니다. 이후 Redis 동기화는 비동기로 처리되며, 실패해도 구매 결과에 영향을 주지 않습니다.
-
-### 5. 비동기 Redis 동기화: @Async 이벤트
-
-DB에 PAID 저장 후, `TicketPaidEvent`가 발행됩니다. `TicketPaidEventListener`가 `@Async`로 후처리를 수행합니다. 실패해도 구매 응답에 영향이 없습니다.
-
-```mermaid
-sequenceDiagram
-    participant T as TicketService
-    participant E as EventPublisher
-    participant L as TicketPaidEventListener<br/>(@Async)
-    participant R as Redis
-    participant DB as MySQL
+    Note over T: DB PAID = Source of Truth<br/>이후 Redis 동기화는 비동기 처리
 
     T->>E: publishEvent(TicketPaidEvent)
     Note over T: 즉시 반환 (비동기)
@@ -245,7 +230,7 @@ sequenceDiagram
     L->>R: DEL active_user:{token}
 ```
 
-### 6. 동기화 배치 복구: PAID 티켓 재동기화
+### 5. 동기화 배치 복구: PAID 티켓 재동기화
 
 5단계 비동기 처리가 실패하면 DB에 PAID 상태로 남습니다. 동기화 배치(`SyncScheduler`, 매 1분)가 이를 감지하여 동일한 `TicketPaidEvent`를 발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
@@ -260,7 +245,7 @@ flowchart TD
     style END fill:#9f9,stroke:#333
 ```
 
-**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 PAID로 기록된 티켓은 확정된 사실입니다. 동기화 배치는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
+**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 저장된 티켓은 구매 확정입니다. 동기화 배치는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
 
 ---
 
