@@ -33,11 +33,11 @@ export default function () {
 
     const entered = check(enterRes, {
         'enter: status 200': (r) => r.status === 200,
-        'enter: uuid exists': (r) => r.json('uuid') !== undefined,
+        'enter: token exists': (r) => r.json('token') !== undefined,
     });
     if (!entered) return;
 
-    const uuid = enterRes.json('uuid');
+    const token = enterRes.json('token');
     const rank = enterRes.json('rank');
 
     // === 2. 대기열 폴링 (ACTIVE될 때까지) ===
@@ -46,7 +46,7 @@ export default function () {
 
     for (let i = 0; i < 60; i++) {  // 최대 5분 (60 * 5초)
         sleep(5)
-        const statusRes = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`);
+        const statusRes = http.get(`${BASE_URL}/api/queues/tokens/${token}`);
         const status = statusRes.json('status');
 
         if (status === 'ACTIVE') {
@@ -64,7 +64,7 @@ export default function () {
     // === 3~4. 좌석 조회 → 구매 (성공하거나 매진될 때까지 반복) ===
     while (true) {
         const seatsRes = http.get(`${BASE_URL}/api/seats`, {
-            headers: { 'X-Queue-Token': uuid },
+            headers: { 'X-Queue-Token': token },
         });
 
         const seatsOk = check(seatsRes, {
@@ -87,7 +87,7 @@ export default function () {
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Queue-Token': uuid,
+                    'X-Queue-Token': token,
                 },
             }
         );

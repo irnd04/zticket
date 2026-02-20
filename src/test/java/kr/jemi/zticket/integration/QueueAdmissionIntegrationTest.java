@@ -56,7 +56,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
         admitUsersUseCase.admitBatch();
 
         assertThat(tokens)
-                .filteredOn(t -> activeUserPort.isActive(t.uuid()))
+                .filteredOn(t -> activeUserPort.isActive(t.token()))
                 .as("3명 전원 active")
                 .hasSize(3);
     }
@@ -66,13 +66,13 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
     void status_lifecycle_waiting_active() {
         QueueToken token = enterQueueUseCase.enter();
 
-        assertThat(getQueueTokenUseCase.getQueueToken(token.uuid()).status())
+        assertThat(getQueueTokenUseCase.getQueueToken(token.token()).status())
                 .as("WAITING")
                 .isEqualTo(QueueStatus.WAITING);
 
         admitUsersUseCase.admitBatch();
 
-        assertThat(getQueueTokenUseCase.getQueueToken(token.uuid()).status())
+        assertThat(getQueueTokenUseCase.getQueueToken(token.token()).status())
                 .as("ACTIVE")
                 .isEqualTo(QueueStatus.ACTIVE);
     }
@@ -84,9 +84,9 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
         admitUsersUseCase.admitBatch();
 
         // active 키 직접 삭제하여 TTL 만료 시뮬레이션
-        redisTemplate.delete("active_user:" + token.uuid());
+        redisTemplate.delete("active_user:" + token.token());
 
-        assertThatThrownBy(() -> getQueueTokenUseCase.getQueueToken(token.uuid()))
+        assertThatThrownBy(() -> getQueueTokenUseCase.getQueueToken(token.token()))
                 .isInstanceOfSatisfying(BusinessException.class, e ->
                         assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
     }
@@ -106,7 +106,7 @@ class QueueAdmissionIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(10);
 
         assertThat(tokens)
-                .filteredOn(t -> activeUserPort.isActive(t.uuid()))
+                .filteredOn(t -> activeUserPort.isActive(t.token()))
                 .as("15명 중 10명만 active")
                 .hasSize(10);
     }

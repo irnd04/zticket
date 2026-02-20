@@ -21,9 +21,9 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
     }
 
     @Override
-    public long enqueue(String uuid) {
-        redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
-        Long rank = this.getRank(uuid);
+    public long enqueue(String token) {
+        redisTemplate.opsForZSet().add(KEY, token, System.currentTimeMillis());
+        Long rank = this.getRank(token);
         if (rank == null) {
             throw new IllegalStateException("rank는 null일 수 없습니다.");
         }
@@ -31,8 +31,8 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
     }
 
     @Override
-    public Long getRank(String uuid) {
-        Long rank = redisTemplate.opsForZSet().rank(KEY, uuid);
+    public Long getRank(String token) {
+        Long rank = redisTemplate.opsForZSet().rank(KEY, token);
         if (rank == null) {
             return null;
         }
@@ -52,9 +52,9 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
     }
 
     @Override
-    public void removeAll(List<String> uuids) {
-        if (!uuids.isEmpty()) {
-            redisTemplate.opsForZSet().remove(KEY, uuids.toArray());
+    public void removeAll(List<String> tokens) {
+        if (!tokens.isEmpty()) {
+            redisTemplate.opsForZSet().remove(KEY, tokens.toArray());
         }
     }
 }

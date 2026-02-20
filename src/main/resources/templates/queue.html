@@ -332,7 +332,7 @@
     </div>
 
     <script>
-        var uuid = null;
+        var token = null;
         var pollInterval = null;
 
         function getQueryParam(name) {
@@ -367,7 +367,7 @@
 
         async function checkStatus() {
             try {
-                var response = await fetch('/api/queues/tokens/' + encodeURIComponent(uuid));
+                var response = await fetch('/api/queues/tokens/' + encodeURIComponent(token));
 
                 if (!response.ok) {
                     if (response.status === 404) {
@@ -397,7 +397,7 @@
                     showSection('activeSection');
                     stopPolling();
                     setTimeout(function() {
-                        window.location.href = '/purchase?token=' + encodeURIComponent(uuid);
+                        window.location.href = '/purchase?token=' + encodeURIComponent(token);
                     }, 1000);
 
                 } else if (status === 'SOLD_OUT') {
@@ -413,8 +413,8 @@
         }
 
         function init() {
-            uuid = getQueryParam('uuid');
-            if (!uuid) {
+            token = getQueryParam('token');
+            if (!token) {
                 showError('유효하지 않은 접근입니다. 대기열 토큰이 없습니다.');
                 return;
             }

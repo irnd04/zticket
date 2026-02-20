@@ -20,8 +20,8 @@ public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatP
     }
 
     @Override
-    public void refresh(String uuid) {
-        redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
+    public void refresh(String token) {
+        redisTemplate.opsForZSet().add(KEY, token, System.currentTimeMillis());
     }
 
     @Override
@@ -35,9 +35,9 @@ public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatP
     }
 
     @Override
-    public void removeAll(List<String> uuids) {
-        if (!uuids.isEmpty()) {
-            redisTemplate.opsForZSet().remove(KEY, uuids.toArray());
+    public void removeAll(List<String> tokens) {
+        if (!tokens.isEmpty()) {
+            redisTemplate.opsForZSet().remove(KEY, tokens.toArray());
         }
     }
 }

@@ -4,9 +4,9 @@ import java.util.List;
 
 public interface WaitingQueueHeartbeatPort {
 
-    void refresh(String uuid);
+    void refresh(String token);
 
     List<String> findExpired(long cutoffTimestamp, int size);
 
-    void removeAll(List<String> uuids);
+    void removeAll(List<String> tokens);
 }

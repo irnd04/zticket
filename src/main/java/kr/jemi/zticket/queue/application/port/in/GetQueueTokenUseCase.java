@@ -4,5 +4,5 @@ import kr.jemi.zticket.queue.domain.QueueToken;
 
 public interface GetQueueTokenUseCase {
 
-    QueueToken getQueueToken(String uuid);
+    QueueToken getQueueToken(String token);
 }

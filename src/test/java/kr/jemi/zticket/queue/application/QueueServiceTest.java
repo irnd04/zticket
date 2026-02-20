@@ -55,7 +55,7 @@ class QueueServiceTest {
     class Enter {
 
         @Test
-        @DisplayName("UUID를 생성하고 대기열에 등록 후 순번을 반환한다")
+        @DisplayName("토큰을 생성하고 대기열에 등록 후 순번을 반환한다")
         void shouldEnqueueAndReturnRank() {
             // given
             given(seatService.getAvailableCount()).willReturn(10);
@@ -65,14 +65,14 @@ class QueueServiceTest {
             QueueToken token = queueService.enter();
 
             // then
-            assertThat(token.uuid()).isNotNull().isNotBlank();
+            assertThat(token.token()).isNotNull().isNotBlank();
             assertThat(token.rank()).isEqualTo(1L);
-            then(waitingQueueOperator).should().enqueue(token.uuid());
+            then(waitingQueueOperator).should().enqueue(token.token());
         }
 
         @Test
-        @DisplayName("여러 번 enter()하면 매번 다른 UUID가 생성된다")
-        void shouldGenerateUniqueUuids() {
+        @DisplayName("여러 번 enter()하면 매번 다른 토큰이 생성된다")
+        void shouldGenerateUniqueTokens() {
             // given
             given(seatService.getAvailableCount()).willReturn(10);
             given(waitingQueueOperator.enqueue(anyString())).willReturn(1L, 2L);
@@ -82,7 +82,7 @@ class QueueServiceTest {
             QueueToken token2 = queueService.enter();
 
             // then
-            assertThat(token1.uuid()).isNotEqualTo(token2.uuid());
+            assertThat(token1.token()).isNotEqualTo(token2.token());
         }
 
         @Test
@@ -107,26 +107,26 @@ class QueueServiceTest {
         @DisplayName("active 유저는 ACTIVE 상태를 반환한다")
         void shouldReturnActiveStatus() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(true);
+            given(activeUserPort.isActive("token-1")).willReturn(true);
 
             // when
-            QueueToken token = queueService.getQueueToken("uuid-1");
+            QueueToken token = queueService.getQueueToken("token-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.ACTIVE);
-            assertThat(token.uuid()).isEqualTo("uuid-1");
+            assertThat(token.token()).isEqualTo("token-1");
         }
 
         @Test
         @DisplayName("대기 중인 유저는 WAITING 상태와 순번을 반환한다")
         void shouldReturnWaitingStatus() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(activeUserPort.isActive("token-1")).willReturn(false);
             given(seatService.getAvailableCount()).willReturn(10);
-            given(waitingQueueOperator.getRank("uuid-1")).willReturn(42L);
+            given(waitingQueueOperator.getRank("token-1")).willReturn(42L);
 
             // when
-            QueueToken token = queueService.getQueueToken("uuid-1");
+            QueueToken token = queueService.getQueueToken("token-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.WAITING);
@@ -137,27 +137,27 @@ class QueueServiceTest {
         @DisplayName("대기 중인 유저의 heartbeat를 갱신한다")
         void shouldRefreshHeartbeatForWaitingUser() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(activeUserPort.isActive("token-1")).willReturn(false);
             given(seatService.getAvailableCount()).willReturn(10);
-            given(waitingQueueOperator.getRank("uuid-1")).willReturn(42L);
+            given(waitingQueueOperator.getRank("token-1")).willReturn(42L);
 
             // when
-            queueService.getQueueToken("uuid-1");
+            queueService.getQueueToken("token-1");
 
             // then
-            then(waitingQueueOperator).should().refresh("uuid-1");
+            then(waitingQueueOperator).should().refresh("token-1");
         }
 
         @Test
         @DisplayName("대기열에 없는 유저는 QUEUE_TOKEN_NOT_FOUND 예외를 던진다")
         void shouldThrowWhenTokenNotFound() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(activeUserPort.isActive("token-1")).willReturn(false);
             given(seatService.getAvailableCount()).willReturn(10);
-            given(waitingQueueOperator.getRank("uuid-1")).willReturn(null);
+            given(waitingQueueOperator.getRank("token-1")).willReturn(null);
 
             // when & then
-            assertThatThrownBy(() -> queueService.getQueueToken("uuid-1"))
+            assertThatThrownBy(() -> queueService.getQueueToken("token-1"))
                     .isInstanceOfSatisfying(BusinessException.class, e ->
                             assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUEUE_TOKEN_NOT_FOUND));
         }
@@ -166,11 +166,11 @@ class QueueServiceTest {
         @DisplayName("매진 시 SOLD_OUT 상태를 반환한다")
         void shouldReturnSoldOutWhenNoSeatsAvailable() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(false);
+            given(activeUserPort.isActive("token-1")).willReturn(false);
             given(seatService.getAvailableCount()).willReturn(0);
 
             // when
-            QueueToken token = queueService.getQueueToken("uuid-1");
+            QueueToken token = queueService.getQueueToken("token-1");
 
             // then
             assertThat(token.status()).isEqualTo(QueueStatus.SOLD_OUT);
@@ -180,10 +180,10 @@ class QueueServiceTest {
         @DisplayName("active 유저는 대기열 순번 조회를 하지 않는다 (불필요한 Redis 호출 방지)")
         void shouldNotCheckRankForActiveUser() {
             // given
-            given(activeUserPort.isActive("uuid-1")).willReturn(true);
+            given(activeUserPort.isActive("token-1")).willReturn(true);
 
             // when
-            queueService.getQueueToken("uuid-1");
+            queueService.getQueueToken("token-1");
 
             // then
             then(waitingQueueOperator).should(never()).getRank(anyString());
@@ -199,7 +199,7 @@ class QueueServiceTest {
         void shouldExecuteFourPhasesInOrder() {
             // given
             List<String> expired = List.of("expired-1");
-            List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
+            List<String> candidates = List.of("token-1", "token-2", "token-3");
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(expired, List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
@@ -220,7 +220,7 @@ class QueueServiceTest {
         @Test
         @DisplayName("activate가 모두 완료된 후에만 큐에서 제거한다 (유실 방지)")
         void shouldRemoveOnlyAfterAllActivated() {
-            List<String> candidates = List.of("uuid-1");
+            List<String> candidates = List.of("token-1");
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
@@ -242,7 +242,7 @@ class QueueServiceTest {
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("uuid-1"));
+            given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("token-1"));
 
             // when
             queueService.admitBatch();
@@ -278,7 +278,7 @@ class QueueServiceTest {
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(480);
             given(seatService.getAvailableCount()).willReturn(1000);
-            List<String> candidates = List.of("uuid-1", "uuid-2");
+            List<String> candidates = List.of("token-1", "token-2");
             given(waitingQueueOperator.peek(20)).willReturn(candidates);
 
             // when
@@ -295,7 +295,7 @@ class QueueServiceTest {
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(3);
             given(seatService.getAvailableCount()).willReturn(5);
-            List<String> candidates = List.of("uuid-1", "uuid-2");
+            List<String> candidates = List.of("token-1", "token-2");
             given(waitingQueueOperator.peek(2)).willReturn(candidates);
 
             // when
@@ -347,7 +347,7 @@ class QueueServiceTest {
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("uuid-1"));
+            given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("token-1"));
 
             // when
             queueService.admitBatch();
@@ -363,7 +363,7 @@ class QueueServiceTest {
             given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(470);
             given(seatService.getAvailableCount()).willReturn(1000);
-            given(waitingQueueOperator.peek(30)).willReturn(List.of("uuid-1"));
+            given(waitingQueueOperator.peek(30)).willReturn(List.of("token-1"));
 
             // when
             queueService.admitBatch();

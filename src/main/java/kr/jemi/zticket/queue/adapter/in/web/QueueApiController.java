@@ -25,13 +25,13 @@ public class QueueApiController {
 
     @PostMapping("/api/queues/tokens")
     public ResponseEntity<TokenResponse> enter() {
-        QueueToken token = enterQueueUseCase.enter();
-        return ResponseEntity.ok(new TokenResponse(token.uuid(), token.rank()));
+        QueueToken queueToken = enterQueueUseCase.enter();
+        return ResponseEntity.ok(new TokenResponse(queueToken.token(), queueToken.rank()));
     }
 
-    @GetMapping("/api/queues/tokens/{uuid}")
-    public ResponseEntity<QueueStatusResponse> getQueueToken(@PathVariable String uuid) {
-        QueueToken token = getQueueTokenUseCase.getQueueToken(uuid);
-        return ResponseEntity.ok(QueueStatusResponse.from(token));
+    @GetMapping("/api/queues/tokens/{token}")
+    public ResponseEntity<QueueStatusResponse> getQueueToken(@PathVariable String token) {
+        QueueToken queueToken = getQueueTokenUseCase.getQueueToken(token);
+        return ResponseEntity.ok(QueueStatusResponse.from(queueToken));
     }
 }

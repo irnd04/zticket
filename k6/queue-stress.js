@@ -35,11 +35,11 @@ export default function () {
     });
     if (!entered) return;
 
-    const uuid = enterRes.json('uuid');
+    const token = enterRes.json('token');
 
     // ACTIVE될 때까지 폴링
     while (true) {
-        const res = http.get(`${BASE_URL}/api/queues/tokens/${uuid}`, {
+        const res = http.get(`${BASE_URL}/api/queues/tokens/${token}`, {
             responseType: 'text',
         });
 

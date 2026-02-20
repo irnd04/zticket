@@ -22,18 +22,18 @@ public class WaitingQueueOperator {
         this.queueTtlMs = queueTtlSeconds * 1000;
     }
 
-    public long enqueue(String uuid) {
-        long rank = waitingQueuePort.enqueue(uuid);
-        refresh(uuid);
+    public long enqueue(String token) {
+        long rank = waitingQueuePort.enqueue(token);
+        refresh(token);
         return rank;
     }
 
-    public Long getRank(String uuid) {
-        return waitingQueuePort.getRank(uuid);
+    public Long getRank(String token) {
+        return waitingQueuePort.getRank(token);
     }
 
-    public void refresh(String uuid) {
-        waitingQueueHeartbeatPort.refresh(uuid);
+    public void refresh(String token) {
+        waitingQueueHeartbeatPort.refresh(token);
     }
 
     public List<String> peek(int size) {
@@ -44,12 +44,12 @@ public class WaitingQueueOperator {
         return waitingQueueHeartbeatPort.findExpired(getHeartbeatCutoff(), size);
     }
 
-    public void removeAll(List<String> uuids) {
-        if (uuids == null || uuids.isEmpty()) {
+    public void removeAll(List<String> tokens) {
+        if (tokens == null || tokens.isEmpty()) {
             return;
         }
-        waitingQueuePort.removeAll(uuids);
-        waitingQueueHeartbeatPort.removeAll(uuids);
+        waitingQueuePort.removeAll(tokens);
+        waitingQueueHeartbeatPort.removeAll(tokens);
     }
 
     private long getHeartbeatCutoff() {

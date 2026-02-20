@@ -46,25 +46,25 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         if (seatService.getAvailableCount() <= 0) {
             throw new BusinessException(ErrorCode.SOLD_OUT);
         }
-        String uuid = tsidFactory.generate().toLowerCase();
-        long rank = waitingQueueOperator.enqueue(uuid);
-        return QueueToken.waiting(uuid, rank);
+        String token = tsidFactory.generate().encode(62);
+        long rank = waitingQueueOperator.enqueue(token);
+        return QueueToken.waiting(token, rank);
     }
 
     @Override
-    public QueueToken getQueueToken(String uuid) {
-        if (activeUserPort.isActive(uuid)) {
-            return QueueToken.active(uuid);
+    public QueueToken getQueueToken(String token) {
+        if (activeUserPort.isActive(token)) {
+            return QueueToken.active(token);
         }
         if (seatService.getAvailableCount() <= 0) {
-            return QueueToken.soldOut(uuid);
+            return QueueToken.soldOut(token);
         }
-        Long rank = waitingQueueOperator.getRank(uuid);
+        Long rank = waitingQueueOperator.getRank(token);
         if (rank == null) {
             throw new BusinessException(ErrorCode.QUEUE_TOKEN_NOT_FOUND);
         }
-        waitingQueueOperator.refresh(uuid);
-        return QueueToken.waiting(uuid, rank);
+        waitingQueueOperator.refresh(token);
+        return QueueToken.waiting(token, rank);
     }
 
     @Override
@@ -72,10 +72,10 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         // 1. removeExpired: 잠수 유저 제거
         final int findExpiredBatchSize = 5000;
         while (true) {
-            List<String> expiredUuids = waitingQueueOperator.findExpired(findExpiredBatchSize);
-            waitingQueueOperator.removeAll(expiredUuids);
+            List<String> expiredTokens = waitingQueueOperator.findExpired(findExpiredBatchSize);
+            waitingQueueOperator.removeAll(expiredTokens);
 
-            if (expiredUuids.size() < findExpiredBatchSize) {
+            if (expiredTokens.size() < findExpiredBatchSize) {
                 break;
             }
         }
@@ -92,15 +92,15 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         }
 
         // 3. peek: 잠수 유저 제거 후이므로 단순 FIFO 조회
-        List<String> uuids = waitingQueueOperator.peek(toAdmit);
-        if (uuids.isEmpty()) {
+        List<String> tokens = waitingQueueOperator.peek(toAdmit);
+        if (tokens.isEmpty()) {
             return;
         }
 
         // 4. activate: active_user 키 생성 (파이프라이닝, 멱등 — 재실행해도 TTL만 갱신)
-        activeUserPort.activateBatch(uuids, activeTtlSeconds);
+        activeUserPort.activateBatch(tokens, activeTtlSeconds);
 
         // 5. remove: activate 완료 후에야 큐에서 제거
-        waitingQueueOperator.removeAll(uuids);
+        waitingQueueOperator.removeAll(tokens);
     }
 }

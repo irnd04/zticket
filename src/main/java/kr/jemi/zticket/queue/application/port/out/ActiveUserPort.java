@@ -4,13 +4,13 @@ import java.util.List;
 
 public interface ActiveUserPort {
 
-    void activate(String uuid, long ttlSeconds);
+    void activate(String token, long ttlSeconds);
 
-    void activateBatch(List<String> uuids, long ttlSeconds);
+    void activateBatch(List<String> tokens, long ttlSeconds);
 
-    void deactivate(String uuid);
+    void deactivate(String token);
 
-    boolean isActive(String uuid);
+    boolean isActive(String token);
 
     int countActive();
 }

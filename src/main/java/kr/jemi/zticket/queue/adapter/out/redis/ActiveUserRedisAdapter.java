@@ -25,17 +25,17 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
     }
 
     @Override
-    public void activate(String uuid, long ttlSeconds) {
-        redisTemplate.opsForValue().set(KEY_PREFIX + uuid, "1", ttlSeconds, TimeUnit.SECONDS);
+    public void activate(String token, long ttlSeconds) {
+        redisTemplate.opsForValue().set(KEY_PREFIX + token, "1", ttlSeconds, TimeUnit.SECONDS);
     }
 
     @Override
-    public void activateBatch(List<String> uuids, long ttlSeconds) {
+    public void activateBatch(List<String> tokens, long ttlSeconds) {
         redisTemplate.executePipelined(new SessionCallback<>() {
             @Override
             public Object execute(RedisOperations operations) throws DataAccessException {
-                for (String uuid : uuids) {
-                    operations.opsForValue().set(KEY_PREFIX + uuid, "1", ttlSeconds, TimeUnit.SECONDS);
+                for (String token : tokens) {
+                    operations.opsForValue().set(KEY_PREFIX + token, "1", ttlSeconds, TimeUnit.SECONDS);
                 }
                 return null;
             }
@@ -43,13 +43,13 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
     }
 
     @Override
-    public void deactivate(String uuid) {
-        redisTemplate.delete(KEY_PREFIX + uuid);
+    public void deactivate(String token) {
+        redisTemplate.delete(KEY_PREFIX + token);
     }
 
     @Override
-    public boolean isActive(String uuid) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + uuid));
+    public boolean isActive(String token) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + token));
     }
 
     @Override

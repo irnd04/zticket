@@ -42,30 +42,30 @@ class WaitingQueueOperatorTest {
         @DisplayName("대기열에 등록하고 heartbeat를 등록한 뒤 순번을 반환한다")
         void shouldEnqueueAndRegisterHeartbeat() {
             // given
-            given(waitingQueuePort.enqueue("uuid-1")).willReturn(5L);
+            given(waitingQueuePort.enqueue("token-1")).willReturn(5L);
 
             // when
-            long rank = operator.enqueue("uuid-1");
+            long rank = operator.enqueue("token-1");
 
             // then
             assertThat(rank).isEqualTo(5L);
-            then(waitingQueuePort).should().enqueue("uuid-1");
-            then(waitingQueueHeartbeatPort).should().refresh("uuid-1");
+            then(waitingQueuePort).should().enqueue("token-1");
+            then(waitingQueueHeartbeatPort).should().refresh("token-1");
         }
 
         @Test
         @DisplayName("enqueue → refresh 순서로 실행된다")
         void shouldEnqueueBeforeRegister() {
             // given
-            given(waitingQueuePort.enqueue("uuid-1")).willReturn(1L);
+            given(waitingQueuePort.enqueue("token-1")).willReturn(1L);
 
             // when
-            operator.enqueue("uuid-1");
+            operator.enqueue("token-1");
 
             // then
             InOrder inOrder = inOrder(waitingQueuePort, waitingQueueHeartbeatPort);
-            inOrder.verify(waitingQueuePort).enqueue("uuid-1");
-            inOrder.verify(waitingQueueHeartbeatPort).refresh("uuid-1");
+            inOrder.verify(waitingQueuePort).enqueue("token-1");
+            inOrder.verify(waitingQueueHeartbeatPort).refresh("token-1");
         }
     }
 
@@ -77,10 +77,10 @@ class WaitingQueueOperatorTest {
         @DisplayName("대기열에 있으면 순번을 반환한다")
         void shouldReturnRankWhenAlive() {
             // given
-            given(waitingQueuePort.getRank("uuid-1")).willReturn(10L);
+            given(waitingQueuePort.getRank("token-1")).willReturn(10L);
 
             // when
-            Long rank = operator.getRank("uuid-1");
+            Long rank = operator.getRank("token-1");
 
             // then
             assertThat(rank).isEqualTo(10L);
@@ -95,10 +95,10 @@ class WaitingQueueOperatorTest {
         @DisplayName("waitingQueueHeartbeatPort에 갱신을 위임한다")
         void shouldDelegateToWaitingQueueHeartbeatPort() {
             // when
-            operator.refresh("uuid-1");
+            operator.refresh("token-1");
 
             // then
-            then(waitingQueueHeartbeatPort).should().refresh("uuid-1");
+            then(waitingQueueHeartbeatPort).should().refresh("token-1");
         }
     }
 
@@ -110,14 +110,14 @@ class WaitingQueueOperatorTest {
         @DisplayName("waitingQueuePort에 peek을 위임한다")
         void shouldDelegateToWaitingQueuePort() {
             // given
-            List<String> candidates = List.of("uuid-1", "uuid-2");
+            List<String> candidates = List.of("token-1", "token-2");
             given(waitingQueuePort.peek(2)).willReturn(candidates);
 
             // when
             List<String> result = operator.peek(2);
 
             // then
-            assertThat(result).containsExactly("uuid-1", "uuid-2");
+            assertThat(result).containsExactly("token-1", "token-2");
             then(waitingQueuePort).should().peek(2);
         }
     }
@@ -130,14 +130,14 @@ class WaitingQueueOperatorTest {
         @DisplayName("waitingQueueHeartbeatPort에 cutoff과 size를 전달하여 만료 유저를 조회한다")
         void shouldFindExpiredWithCutoffAndSize() {
             // given
-            List<String> expired = List.of("uuid-1", "uuid-2");
+            List<String> expired = List.of("token-1", "token-2");
             given(waitingQueueHeartbeatPort.findExpired(anyLong(), eq(100))).willReturn(expired);
 
             // when
             List<String> result = operator.findExpired(100);
 
             // then
-            assertThat(result).containsExactly("uuid-1", "uuid-2");
+            assertThat(result).containsExactly("token-1", "token-2");
             then(waitingQueueHeartbeatPort).should().findExpired(anyLong(), eq(100));
         }
     }
@@ -150,14 +150,14 @@ class WaitingQueueOperatorTest {
         @DisplayName("대기열과 heartbeat에서 모두 제거한다")
         void shouldRemoveFromBoth() {
             // given
-            List<String> uuids = List.of("uuid-1", "uuid-2");
+            List<String> tokens = List.of("token-1", "token-2");
 
             // when
-            operator.removeAll(uuids);
+            operator.removeAll(tokens);
 
             // then
-            then(waitingQueuePort).should().removeAll(uuids);
-            then(waitingQueueHeartbeatPort).should().removeAll(uuids);
+            then(waitingQueuePort).should().removeAll(tokens);
+            then(waitingQueueHeartbeatPort).should().removeAll(tokens);
         }
     }
 }
