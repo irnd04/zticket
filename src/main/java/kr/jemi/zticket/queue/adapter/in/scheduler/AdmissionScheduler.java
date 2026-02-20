@@ -1,6 +1,7 @@
 package kr.jemi.zticket.queue.adapter.in.scheduler;
 
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,7 +18,10 @@ public class AdmissionScheduler {
         this.admitUsersUseCase = admitUsersUseCase;
     }
 
-    @Scheduled(fixedDelayString = "${zticket.admission.interval-ms}")
+    @Scheduled(cron = "${zticket.admission.cron}")
+    @SchedulerLock(name = "admit",
+            lockAtMostFor = "${zticket.admission.lock-at-most-for}",
+            lockAtLeastFor = "${zticket.admission.lock-at-least-for}")
     public void admit() {
         try {
             admitUsersUseCase.admitBatch();

@@ -1,6 +1,7 @@
 package kr.jemi.zticket.ticket.adapter.in.scheduler;
 
 import kr.jemi.zticket.ticket.application.port.in.SyncTicketUseCase;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,7 +18,10 @@ public class SyncScheduler {
         this.syncTicketUseCase = syncTicketUseCase;
     }
 
-    @Scheduled(fixedDelayString = "${zticket.sync.interval-ms}")
+    @Scheduled(cron = "${zticket.sync.cron}")
+    @SchedulerLock(name = "syncPaidTickets",
+            lockAtMostFor = "${zticket.sync.lock-at-most-for}",
+            lockAtLeastFor = "${zticket.sync.lock-at-least-for}")
     public void sync() {
         try {
             syncTicketUseCase.syncPaidTickets();

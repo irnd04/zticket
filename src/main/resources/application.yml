@@ -65,7 +65,9 @@ management:
 
 zticket:
   admission:
-    interval-ms: 5000
+    cron: "*/5 * * * * *"
+    lock-at-most-for: PT10S
+    lock-at-least-for: PT4S
     active-ttl-seconds: 300
     max-active-users: ${zticket.seat.total-count}
     batch-size: 100
@@ -74,4 +76,6 @@ zticket:
     total-count: 1000
     hold-ttl-seconds: 300
   sync:
-    interval-ms: 60000
+    cron: "0 * * * * *"
+    lock-at-most-for: PT50S
+    lock-at-least-for: PT50S

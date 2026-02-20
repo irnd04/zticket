@@ -477,7 +477,24 @@ Outbox 패턴은 비즈니스 데이터와 이벤트(outbox)를 같은 트랜잭
 
 ---
 
-### 3. 대기열: Redis Sorted Set vs 메시지 큐 (Kafka/RabbitMQ)
+### 3. 스케줄러 중복 실행 방지: ShedLock (Redis)
+
+#### 선택: ShedLock + Redis provider
+
+다중 인스턴스 배포 시 같은 `@Scheduled` 작업이 모든 인스턴스에서 동시에 실행됩니다. ShedLock은 Redis `SET NX EX`로 분산 락을 걸어, 한 인스턴스만 스케줄러를 실행하도록 보장합니다.
+
+**설정**:
+- `cron` 기반 스케줄링: 모든 인스턴스가 동일한 시각에 실행을 시도하고, ShedLock이 하나만 통과시킵니다. `fixedDelay`는 인스턴스별 타이머가 독립적이라 실행 시점이 제각각이므로 `cron`이 적합합니다.
+- `lockAtMostFor`: 최대 락 보유 시간. 이 시간이 지나면 인스턴스가 죽어도 락이 자동 해제됩니다.
+- `lockAtLeastFor`: 최소 락 보유 시간. 스케줄러 주기 내에 다른 인스턴스가 재실행하는 것을 방지합니다.
+
+**락의 한계와 멱등성**:
+
+락 선점은 `SET NX`로 원자적이지만, 락을 쥐고 있는 동안 유효성은 보장되지 않습니다. 예를 들어 Instance A가 `lockAtMostFor = 10s`로 락을 획득한 뒤 GC pause나 I/O 지연으로 작업이 15초 걸리면, 10초 시점에 TTL이 만료되어 Instance B가 같은 락을 획득합니다. A는 자신의 락이 만료된 사실을 모른 채 나머지 작업을 계속 수행하고, 결과적으로 두 인스턴스가 동시에 같은 작업을 실행합니다. 이 프로젝트의 모든 `@Scheduled`는 멱등하므로, 이런 경우에도 결과에 영향이 없습니다.
+
+---
+
+### 4. 대기열: Redis Sorted Set vs 메시지 큐 (Kafka/RabbitMQ)
 
 #### 선택: Redis Sorted Set (`ZADD`, `ZRANK`, `ZRANGE + ZREM`)
 
@@ -495,7 +512,7 @@ Outbox 패턴은 비즈니스 데이터와 이벤트(outbox)를 같은 트랜잭
 
 ---
 
-### 4. 1티켓-1좌석: 단일 좌석 vs 다중 좌석 선택
+### 5. 1티켓-1좌석: 단일 좌석 vs 다중 좌석 선택
 
 #### 선택: 1티켓 = 1좌석 (`seatNumber: int`)
 
@@ -509,7 +526,7 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 
 ---
 
-### 5. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
+### 6. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
 
 #### 선택: 도메인 엔티티에서 상태 전이 후 save
 
@@ -543,7 +560,7 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 6. 클라이언트 통신: 폴링 vs WebSocket vs SSE
+### 7. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
 #### 선택: 5초 주기 HTTP 폴링
 
@@ -559,7 +576,7 @@ public Ticket save(Ticket ticket) {
 - **불필요한 요청**: 순번 변화가 없어도 5초마다 요청을 보냅니다. 대기자 50만 명 × 0.2 req/s = ~100,000 req/s.
 - **최대 5초 지연**: 입장이 허용된 직후부터 최대 5초 후에야 클라이언트가 인지합니다.
 
-### 7. 스레드 모델: Virtual Thread vs Platform Thread
+### 8. 스레드 모델: Virtual Thread vs Platform Thread
 
 #### 선택: Java 25 Virtual Thread (`spring.threads.virtual.enabled: true`)
 
