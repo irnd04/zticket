@@ -688,7 +688,7 @@ docker compose --profile k6-stress up -d
 
 #### 결론
 
-App CPU 78%, Redis CPU 63%로 양쪽 모두 여유가 있습니다. 동일 스펙의 App 서버를 하나 더 두어 로드밸런싱하고, Redis CPU를 더 활용하면 간단하게 트래픽을 2배 정도는 더 수용할 수 있을 것으로 예상됩니다.
+App CPU 78%, Redis CPU 63%로 양쪽 모두 여유가 있습니다. App 인스턴스를 하나 더 추가하면 App 부하가 분산되지만, Redis가 싱글 코어 63%에서 병목으로 전환될 수 있으므로 약 30% 정도 트래픽을 더 수용할 수 있을 것으로 예상됩니다.
 
 ---
 
@@ -937,7 +937,9 @@ src/main/resources/templates/
 ```yaml
 zticket:
   admission:
-    interval-ms: 5000       # 입장 스케줄러 실행 주기 (5초)
+    cron: "*/5 * * * * *"   # 입장 스케줄러 실행 주기 (5초)
+    lock-at-most-for: PT10S # ShedLock 최대 락 보유 (10초)
+    lock-at-least-for: PT4S # ShedLock 최소 락 보유 (4초)
     active-ttl-seconds: 300 # 입장 후 구매 가능 시간 (5분)
     max-active-users: ${zticket.seat.total-count}  # 동시 active 유저 상한 (= 총 좌석 수)
     batch-size: 100         # 주기당 최대 입장 인원
@@ -946,11 +948,13 @@ zticket:
     total-count: 1000       # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
   sync:
-    interval-ms: 60000      # 동기화 워커 실행 주기 (1분)
+    cron: "0 * * * * *"     # 동기화 워커 실행 주기 (1분)
+    lock-at-most-for: PT50S # ShedLock 최대 락 보유 (50초)
+    lock-at-least-for: PT50S # ShedLock 최소 락 보유 (50초)
 ```
 
 **핵심 제약**:
 - `active-ttl-seconds(300초)` >= `hold-ttl-seconds(300초)`: active 세션이 좌석 선점보다 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있는 상태가 됩니다. hold가 먼저 만료되면 구매 중 좌석이 풀리므로, active TTL은 hold TTL과 같거나 커야 합니다.
-- `sync.interval-ms(60초)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
+- `sync.cron(1분)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
 
 
