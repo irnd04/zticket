@@ -643,6 +643,27 @@ k6 run k6/queue-stress.js &
 
 병목은 **로컬 CPU 포화**(시스템 CPU 99%)입니다. 단일 머신에서 App + k6 + Redis + Prometheus + Grafana를 동시에 실행하여 CPU를 거의 다 사용합니다. 서버 측(앱, Redis)은 여유가 있으므로, 부하 생성기를 별도 머신으로 분리하면 더 높은 처리량이 나올 것으로 예상됩니다.
 
+#### 시스템 리소스 (부하 중 실측)
+
+> **테스트 조건**: enter-stress 500 VU + queue-stress 3,000 VU (합계 3,500 VU), 10분
+
+**App** (CPU 6코어, Memory 4GB, Heap 2GB, G1GC 기본 설정)
+
+| 항목 | 값 | 비고 |
+|------|------|------|
+| CPU | 528% / 600% | 코어 대부분 사용 |
+| GC Overhead | 15.5% | CPU의 15%를 GC에 소비 |
+| GC STW (avg) | ~14ms | Young GC 1회당 평균 STW |
+| GC STW (max) | 32ms | |
+| GC 횟수 | ~11회/s | Young GC만 발생, Full GC 0회 |
+| Eden 할당 속도 | ~3.5GB/s | 단기 객체 생성 속도 |
+
+**Redis** (CPU 1코어, Memory 1GB, maxmemory 700MB)
+
+| 항목 | 값 | 비고 |
+|------|------|------|
+| CPU | 54% / 100% | 여유 있음 |
+
 ---
 
 ## 모니터링 (Prometheus + Grafana)
