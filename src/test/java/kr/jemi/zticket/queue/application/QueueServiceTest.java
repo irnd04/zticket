@@ -38,6 +38,7 @@ class QueueServiceTest {
     private static final long ACTIVE_TTL_SECONDS = 300L;
     private static final int MAX_ACTIVE_USERS = 500;
     private static final int BATCH_SIZE = 100;
+    private static final int FIND_EXPIRED_BATCH_SIZE = 5000;
 
     @BeforeEach
     void setUp() {
@@ -196,7 +197,7 @@ class QueueServiceTest {
             // given
             List<String> expired = List.of("expired-1");
             List<String> candidates = List.of("uuid-1", "uuid-2", "uuid-3");
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(expired, List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(expired, List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(candidates);
@@ -206,7 +207,7 @@ class QueueServiceTest {
 
             // then
             InOrder inOrder = inOrder(waitingQueueOperator, activeUserPort);
-            inOrder.verify(waitingQueueOperator).findExpired(BATCH_SIZE);
+            inOrder.verify(waitingQueueOperator).findExpired(FIND_EXPIRED_BATCH_SIZE);
             inOrder.verify(waitingQueueOperator).removeAll(expired);
             inOrder.verify(waitingQueueOperator).peek(BATCH_SIZE);
             inOrder.verify(activeUserPort).activateBatch(candidates, ACTIVE_TTL_SECONDS);
@@ -217,7 +218,7 @@ class QueueServiceTest {
         @DisplayName("activate가 모두 완료된 후에만 큐에서 제거한다 (유실 방지)")
         void shouldRemoveOnlyAfterAllActivated() {
             List<String> candidates = List.of("uuid-1");
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(anyInt())).willReturn(candidates);
@@ -232,10 +233,10 @@ class QueueServiceTest {
         }
 
         @Test
-        @DisplayName("잠수 유저가 없으면 removeAll을 호출하지 않는다")
-        void shouldSkipRemoveWhenNoExpired() {
+        @DisplayName("잠수 유저가 없어도 removeAll은 빈 리스트로 호출된다")
+        void shouldCallRemoveAllWithEmptyListWhenNoExpired() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("uuid-1"));
@@ -243,8 +244,8 @@ class QueueServiceTest {
             // when
             queueService.admitBatch();
 
-            // then - findExpired 후 removeAll은 호출되지 않음 (입장 후 removeAll만 호출)
-            then(waitingQueueOperator).should(times(1)).removeAll(anyList());
+            // then - removeAll 2회: expired 빈 리스트 1회 + 입장 후 1회
+            then(waitingQueueOperator).should(times(2)).removeAll(anyList());
         }
     }
 
@@ -256,7 +257,7 @@ class QueueServiceTest {
         @DisplayName("maxActiveUsers에 도달하면 입장시키지 않는다")
         void shouldNotAdmitWhenMaxActiveReached() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(500);
 
             // when
@@ -271,7 +272,7 @@ class QueueServiceTest {
         @DisplayName("빈 슬롯 수만큼만 입장시킨다")
         void shouldAdmitOnlyAvailableSlots() {
             // given - 현재 480명 active → 빈 슬롯 20개
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(480);
             given(seatService.getAvailableCount()).willReturn(1000);
             List<String> candidates = List.of("uuid-1", "uuid-2");
@@ -288,7 +289,7 @@ class QueueServiceTest {
         @DisplayName("잔여 좌석에서 active 유저 수를 차감하여 입장 인원을 결정한다")
         void shouldSubtractActiveUsersFromRemainingSeats() {
             // given - 잔여 좌석 5개, active 3명 → 입장 가능 = 2명
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(3);
             given(seatService.getAvailableCount()).willReturn(5);
             List<String> candidates = List.of("uuid-1", "uuid-2");
@@ -306,7 +307,7 @@ class QueueServiceTest {
         @DisplayName("잔여 좌석이 active 유저 수 이하이면 입장시키지 않는다")
         void shouldNotAdmitWhenRemainingSeatsLessThanActive() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(5);
             given(seatService.getAvailableCount()).willReturn(3);
 
@@ -321,7 +322,7 @@ class QueueServiceTest {
         @DisplayName("maxActiveUsers를 초과하면 toAdmit이 0이 된다")
         void shouldHandleOverCapacity() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(510);
 
             // when
@@ -340,7 +341,7 @@ class QueueServiceTest {
         @DisplayName("슬롯이 충분해도 batchSize를 초과하여 입장시키지 않는다")
         void shouldNotExceedBatchSize() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of("uuid-1"));
@@ -356,7 +357,7 @@ class QueueServiceTest {
         @DisplayName("빈 슬롯이 batchSize보다 적으면 빈 슬롯만큼만 입장시킨다")
         void shouldAdmitFewerThanBatchSizeWhenSlotsLimited() {
             // given - active 470명 → 빈 슬롯 30개
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(470);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(30)).willReturn(List.of("uuid-1"));
@@ -377,7 +378,7 @@ class QueueServiceTest {
         @DisplayName("대기열이 비어있으면 activate와 remove를 실행하지 않는다")
         void shouldDoNothingWhenQueueIsEmpty() {
             // given
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(0);
             given(seatService.getAvailableCount()).willReturn(1000);
             given(waitingQueueOperator.peek(BATCH_SIZE)).willReturn(List.of());
@@ -387,7 +388,7 @@ class QueueServiceTest {
 
             // then
             then(activeUserPort).should(never()).activateBatch(anyList(), anyLong());
-            then(waitingQueueOperator).should(never()).removeAll(anyList());
+            then(waitingQueueOperator).should(times(1)).removeAll(List.of());
         }
     }
 
@@ -399,7 +400,7 @@ class QueueServiceTest {
         @DisplayName("잠수 유저 TTL 만료 후 다음 주기에 새 유저를 입장시킨다")
         void shouldAdmitNewUsersAfterStaleUserExpiry() {
             // 1주기 - maxActive 도달
-            given(waitingQueueOperator.findExpired(BATCH_SIZE)).willReturn(List.of());
+            given(waitingQueueOperator.findExpired(FIND_EXPIRED_BATCH_SIZE)).willReturn(List.of());
             given(activeUserPort.countActive()).willReturn(500);
             queueService.admitBatch();
             then(waitingQueueOperator).should(never()).peek(anyInt());
