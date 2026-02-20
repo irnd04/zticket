@@ -89,6 +89,12 @@ sequenceDiagram
 
 - `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
 
+**시간복잡도** (N = 대기열 인원):
+
+| 연산 | 명령 | 시간 복잡도 | 빈도 |
+|------|------|--------|------|
+| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
+
 ### 2. 대기열 폴링
 
 ```mermaid
@@ -123,11 +129,10 @@ sequenceDiagram
 
 | 연산 | 명령 | 시간 복잡도 | 빈도 |
 |------|------|--------|------|
-| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
-| 폴링 heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
+| heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
 | rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
 
-100만 명 대기 시 log(1M) ≈ 20. 모든 연산이 O(log N)이므로 대기자 수가 늘어도 연산당 처리 시간은 완만하게 증가합니다.
+모든 연산이 O(log N)이므로 대기자 수가 늘어도 연산당 처리 시간은 완만하게 증가합니다.
 
 ### 3. 입장 스케줄러 플로우
 
@@ -563,10 +568,6 @@ public Ticket save(Ticket ticket) {
 
 [k6](https://grafana.com/docs/k6/)를 사용하여 부하 테스트합니다. 두 가지 시나리오를 제공합니다.
 
-```bash
-brew install k6
-```
-
 ### 1. 전체 플로우 시나리오 (`full-flow.js`)
 
 대기열 진입 → 폴링 → 좌석 조회 → 구매까지 실제 사용자와 동일한 플로우를 시뮬레이션합니다 (`per-vu-iterations`, VU당 1회 실행).
@@ -585,7 +586,7 @@ VU 동시 시작 (각 VU 1회만 실행)
 ```
 
 ```bash
-k6 run k6/full-flow.js
+docker compose --profile k6-full-flow up -d
 ```
 
 | 커스텀 메트릭 | 설명 |
@@ -606,19 +607,13 @@ k6 run k6/full-flow.js
 Docker Compose profile로 실행합니다.
 
 ```bash
-# 스트레스 테스트 (enter-stress.js + queue-stress.js)
 docker compose --profile k6-stress up -d
-
-# 전체 플로우 테스트 (full-flow.js)
-docker compose --profile k6-full-flow up -d
 ```
 
 ### 부하 테스트 결과
 
 > 단일 머신(MacBook Pro, Apple M4 Max / 32GB)에서 Docker Compose(App + Redis + MySQL + Prometheus + Grafana) + k6를 동시에 실행한 환경.
 > k6 VU의 JS 런타임 오버헤드와 CPU 경합이 있으므로, 실 운영 대비 보수적인 수치입니다.
-
-**테스트 조건**: enter-stress 500 VU + queue-stress 3,000 VU (합계 3,500 VU), 10분
 
 #### App (CPU 6코어, Memory 4GB, Heap 2GB, G1GC 기본 설정)
 
