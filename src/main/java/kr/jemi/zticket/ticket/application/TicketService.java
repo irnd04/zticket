@@ -7,12 +7,13 @@ import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.ticket.domain.Ticket;
-import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 
 @Service
@@ -53,6 +54,7 @@ public class TicketService implements PurchaseTicketUseCase {
 
         // 3. DB에 PAID 티켓 저장 (결제 완료)
         Ticket ticket = Ticket.create(queueToken, seatNumber);
+        List<Object> events = ticket.pullEvents();
         try {
             ticket = ticketPort.save(ticket);
         } catch (Exception e) {
@@ -63,7 +65,7 @@ public class TicketService implements PurchaseTicketUseCase {
         }
 
         // 4~6. 비동기 후처리 (Redis paid 전환, DB SYNCED, active 유저 제거)
-        eventPublisher.publishEvent(new TicketPaidEvent(ticket.getUuid()));
+        events.forEach(eventPublisher::publishEvent);
 
         return ticket;
     }

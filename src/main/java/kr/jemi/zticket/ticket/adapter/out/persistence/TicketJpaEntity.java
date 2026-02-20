@@ -48,10 +48,6 @@ public class TicketJpaEntity {
         return new Ticket(id, uuid, seatNumber, status, queueToken, createdAt, updatedAt);
     }
 
-    public void setStatus(TicketStatus status) {
-        this.status = status;
-    }
-
     public void update(Ticket ticket) {
         this.uuid = ticket.getUuid();
         this.seatNumber = ticket.getSeatNumber();

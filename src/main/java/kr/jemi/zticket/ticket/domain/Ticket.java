@@ -1,6 +1,8 @@
 package kr.jemi.zticket.ticket.domain;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class Ticket {
@@ -12,6 +14,8 @@ public class Ticket {
     private final String queueToken;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    private final List<Object> events = new ArrayList<>();
 
     public Ticket(Long id, String uuid, int seatNumber, TicketStatus status, String queueToken,
                   LocalDateTime createdAt, LocalDateTime updatedAt) {
@@ -25,8 +29,20 @@ public class Ticket {
     }
 
     public static Ticket create(String queueToken, int seatNumber) {
-        return new Ticket(null, UUID.randomUUID().toString(), seatNumber, TicketStatus.PAID, queueToken,
+        Ticket ticket = new Ticket(null, UUID.randomUUID().toString(), seatNumber, TicketStatus.PAID, queueToken,
                 LocalDateTime.now(), null);
+        ticket.registerEvent(new TicketPaidEvent(ticket.uuid));
+        return ticket;
+    }
+
+    private void registerEvent(Object event) {
+        events.add(event);
+    }
+
+    public List<Object> pullEvents() {
+        List<Object> result = List.copyOf(events);
+        events.clear();
+        return result;
     }
 
     public void sync() {

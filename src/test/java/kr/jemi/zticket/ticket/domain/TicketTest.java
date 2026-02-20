@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -57,6 +58,40 @@ class TicketTest {
 
             assertThat(ticket.getCreatedAt()).isBetween(before, after);
             assertThat(ticket.getUpdatedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("생성 시 TicketPaidEvent 도메인 이벤트가 등록된다")
+        void shouldRegisterTicketPaidEvent() {
+            Ticket ticket = Ticket.create("token-1", 7);
+
+            List<Object> events = ticket.pullEvents();
+            assertThat(events).hasSize(1);
+            assertThat(events.getFirst()).isInstanceOf(TicketPaidEvent.class);
+            assertThat(((TicketPaidEvent) events.getFirst()).ticketUuid())
+                    .isEqualTo(ticket.getUuid());
+        }
+
+        @Test
+        @DisplayName("clearDomainEvents() 호출 시 이벤트가 비워진다")
+        void shouldClearDomainEvents() {
+            Ticket ticket = Ticket.create("token-1", 7);
+            assertThat(ticket.pullEvents()).isNotEmpty();
+            assertThat(ticket.pullEvents()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("domainEvents() - 도메인 이벤트")
+    class DomainEvents {
+
+        @Test
+        @DisplayName("생성자로 복원된 티켓은 도메인 이벤트가 없다")
+        void shouldHaveNoEventsWhenRestoredFromConstructor() {
+            Ticket ticket = new Ticket(1L, "uuid-1", 7, TicketStatus.PAID, "token-1",
+                    LocalDateTime.now(), null);
+
+            assertThat(ticket.pullEvents()).isEmpty();
         }
     }
 
