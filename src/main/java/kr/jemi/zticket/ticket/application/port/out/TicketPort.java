@@ -8,9 +8,11 @@ import java.util.Optional;
 
 public interface TicketPort {
 
-    Ticket save(Ticket ticket);
+    Ticket insert(Ticket ticket);
 
-    Optional<Ticket> findByUuid(String uuid);
+    void update(Ticket ticket);
+
+    Optional<Ticket> findById(long ticketId);
 
     List<Ticket> findByStatus(TicketStatus status);
 }

@@ -37,20 +37,19 @@ class TicketPaidEventListenerTest {
     private TicketPaidEventListener listener;
 
     @Test
-    @DisplayName("정상 처리: paySeat → sync+save → deactivate 순서로 실행된다")
+    @DisplayName("정상 처리: paySeat → sync+update → deactivate 순서로 실행된다")
     void shouldExecuteStepsInOrder() {
         // given
-        Ticket ticket = new Ticket(1L, "uuid-1", 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
-        given(ticketPort.findByUuid("uuid-1")).willReturn(Optional.of(ticket));
-        given(ticketPort.save(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
+        Ticket ticket = new Ticket(1L, 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
+        given(ticketPort.findById(1)).willReturn(Optional.of(ticket));
 
         // when
-        listener.handle(new TicketPaidEvent("uuid-1"));
+        listener.handle(new TicketPaidEvent(1));
 
         // then
         InOrder inOrder = inOrder(seatPort, ticketPort, activeUserPort);
         inOrder.verify(seatPort).paySeat(7, "token-1");
-        inOrder.verify(ticketPort).save(any(Ticket.class));
+        inOrder.verify(ticketPort).update(any(Ticket.class));
         inOrder.verify(activeUserPort).deactivate("token-1");
     }
 
@@ -58,10 +57,10 @@ class TicketPaidEventListenerTest {
     @DisplayName("존재하지 않는 티켓 UUID이면 IllegalStateException이 발생한다")
     void shouldThrowWhenTicketNotFound() {
         // given
-        given(ticketPort.findByUuid("non-existent")).willReturn(Optional.empty());
+        given(ticketPort.findById(0)).willReturn(Optional.empty());
 
         // when & then
-        assertThatThrownBy(() -> listener.handle(new TicketPaidEvent("non-existent")))
+        assertThatThrownBy(() -> listener.handle(new TicketPaidEvent(0)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("티켓 없음");
 

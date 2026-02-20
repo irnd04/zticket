@@ -31,7 +31,7 @@ public class TicketSyncService implements SyncTicketUseCase {
         List<Ticket> paidTickets = ticketPort.findByStatus(TicketStatus.PAID);
 
         for (Ticket ticket : paidTickets) {
-            eventPublisher.publishEvent(new TicketPaidEvent(ticket.getUuid()));
+            eventPublisher.publishEvent(new TicketPaidEvent(ticket.getId()));
         }
 
         if (!paidTickets.isEmpty()) {

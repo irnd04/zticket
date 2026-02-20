@@ -36,8 +36,8 @@ class TicketSyncServiceTest {
     @DisplayName("PAID 티켓마다 TicketPaidEvent를 발행한다")
     void shouldPublishEventForEachPaidTicket() {
         // given
-        Ticket ticket1 = new Ticket(null, "uuid-1", 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
-        Ticket ticket2 = new Ticket(null, "uuid-2", 42, TicketStatus.PAID, "token-2", LocalDateTime.now(), null);
+        Ticket ticket1 = new Ticket(1, 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
+        Ticket ticket2 = new Ticket(2, 42, TicketStatus.PAID, "token-2", LocalDateTime.now(), null);
         given(ticketPort.findByStatus(TicketStatus.PAID))
                 .willReturn(List.of(ticket1, ticket2));
 
@@ -48,8 +48,8 @@ class TicketSyncServiceTest {
         ArgumentCaptor<TicketPaidEvent> captor = ArgumentCaptor.forClass(TicketPaidEvent.class);
         then(eventPublisher).should(times(2)).publishEvent(captor.capture());
         assertThat(captor.getAllValues())
-                .extracting(TicketPaidEvent::ticketUuid)
-                .containsExactly("uuid-1", "uuid-2");
+                .extracting(TicketPaidEvent::ticketId)
+                .containsExactly(1L, 2L);
     }
 
     @Test

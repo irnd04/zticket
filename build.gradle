@@ -27,6 +27,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.hypersistence:hypersistence-tsid:2.1.4'
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.6.0'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-spring:7.6.0'
     implementation 'com.github.ben-manes.caffeine:caffeine'

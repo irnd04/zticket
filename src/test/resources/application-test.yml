@@ -12,6 +12,8 @@ spring:
     show-sql: false
 
 zticket:
+  tsid:
+    node-bits: 8
   admission:
     cron: "-"
     active-ttl-seconds: 3

@@ -1,5 +1,6 @@
 package kr.jemi.zticket.ticket.application;
 
+import io.hypersistence.tsid.TSID;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.seat.application.port.out.SeatPort;
@@ -25,17 +26,20 @@ public class TicketService implements PurchaseTicketUseCase {
     private final TicketPort ticketPort;
     private final ActiveUserPort activeUserPort;
     private final ApplicationEventPublisher eventPublisher;
+    private final TSID.Factory tsidFactory;
     private final long holdTtlSeconds;
 
     public TicketService(SeatPort seatPort,
                          TicketPort ticketPort,
                          ActiveUserPort activeUserPort,
                          ApplicationEventPublisher eventPublisher,
+                         TSID.Factory tsidFactory,
                          @Value("${zticket.seat.hold-ttl-seconds}") long holdTtlSeconds) {
         this.seatPort = seatPort;
         this.ticketPort = ticketPort;
         this.activeUserPort = activeUserPort;
         this.eventPublisher = eventPublisher;
+        this.tsidFactory = tsidFactory;
         this.holdTtlSeconds = holdTtlSeconds;
     }
 
@@ -53,10 +57,11 @@ public class TicketService implements PurchaseTicketUseCase {
         }
 
         // 3. DB에 PAID 티켓 저장 (결제 완료)
-        Ticket ticket = Ticket.create(queueToken, seatNumber);
+        long id = tsidFactory.generate().toLong();
+        Ticket ticket = Ticket.create(id, queueToken, seatNumber);
         List<Object> events = ticket.pullEvents();
         try {
-            ticket = ticketPort.save(ticket);
+            ticket = ticketPort.insert(ticket);
         } catch (Exception e) {
             // 롤백: Redis 좌석 해제
             log.error("DB 저장 실패, 좌석 해제: {}", seatNumber, e);

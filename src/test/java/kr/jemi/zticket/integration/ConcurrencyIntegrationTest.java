@@ -100,10 +100,10 @@ class ConcurrencyIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("seatNumber UNIQUE 제약: 같은 좌석번호 중복 INSERT 실패")
     void duplicate_seatNumber_throws_DataIntegrityViolation() {
-        ticketJpaRepository.saveAndFlush(TicketJpaEntity.fromDomain(Ticket.create("token-1", 1)));
+        ticketJpaRepository.saveAndFlush(TicketJpaEntity.fromDomain(Ticket.create(1, "token-1", 1)));
 
         assertThatThrownBy(() ->
-                ticketJpaRepository.saveAndFlush(TicketJpaEntity.fromDomain(Ticket.create("token-2", 1)))
+                ticketJpaRepository.saveAndFlush(TicketJpaEntity.fromDomain(Ticket.create(2, "token-2", 1)))
         ).isInstanceOf(DataIntegrityViolationException.class);
     }
 }

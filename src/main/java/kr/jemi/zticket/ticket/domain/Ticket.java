@@ -3,12 +3,10 @@ package kr.jemi.zticket.ticket.domain;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 public class Ticket {
 
     private final Long id;
-    private final String uuid;
     private final int seatNumber;
     private TicketStatus status;
     private final String queueToken;
@@ -17,10 +15,9 @@ public class Ticket {
 
     private final List<Object> events = new ArrayList<>();
 
-    public Ticket(Long id, String uuid, int seatNumber, TicketStatus status, String queueToken,
+    public Ticket(long id, int seatNumber, TicketStatus status, String queueToken,
                   LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
-        this.uuid = uuid;
         this.seatNumber = seatNumber;
         this.status = status;
         this.queueToken = queueToken;
@@ -28,10 +25,10 @@ public class Ticket {
         this.updatedAt = updatedAt;
     }
 
-    public static Ticket create(String queueToken, int seatNumber) {
-        Ticket ticket = new Ticket(null, UUID.randomUUID().toString(), seatNumber, TicketStatus.PAID, queueToken,
+    public static Ticket create(long id, String queueToken, int seatNumber) {
+        Ticket ticket = new Ticket(id, seatNumber, TicketStatus.PAID, queueToken,
                 LocalDateTime.now(), null);
-        ticket.registerEvent(new TicketPaidEvent(ticket.uuid));
+        ticket.registerEvent(new TicketPaidEvent(id));
         return ticket;
     }
 
@@ -56,10 +53,6 @@ public class Ticket {
 
     public Long getId() {
         return id;
-    }
-
-    public String getUuid() {
-        return uuid;
     }
 
     public int getSeatNumber() {

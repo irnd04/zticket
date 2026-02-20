@@ -1,5 +1,6 @@
 package kr.jemi.zticket.queue.application;
 
+import io.hypersistence.tsid.TSID;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
@@ -33,6 +34,8 @@ class QueueServiceTest {
     @Mock
     private SeatService seatService;
 
+    private final TSID.Factory tsidFactory = TSID.Factory.newInstance256(0);
+
     private QueueService queueService;
 
     private static final long ACTIVE_TTL_SECONDS = 300L;
@@ -43,7 +46,7 @@ class QueueServiceTest {
     @BeforeEach
     void setUp() {
         queueService = new QueueService(
-                waitingQueueOperator, activeUserPort, seatService,
+                waitingQueueOperator, activeUserPort, seatService, tsidFactory,
                 ACTIVE_TTL_SECONDS, MAX_ACTIVE_USERS, BATCH_SIZE);
     }
 

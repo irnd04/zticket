@@ -27,15 +27,15 @@ public class TicketPaidEventListener {
     @Async
     @EventListener
     public void handle(TicketPaidEvent event) {
-        Ticket ticket = ticketPort.findByUuid(event.ticketUuid())
-                .orElseThrow(() -> new IllegalStateException("티켓 없음: " + event.ticketUuid()));
+        Ticket ticket = ticketPort.findById(event.ticketId())
+                .orElseThrow(() -> new IllegalStateException("티켓 없음: " + event.ticketId()));
 
         // 4. Redis 좌석 결제 확정 (held → paid)
         seatPort.paySeat(ticket.getSeatNumber(), ticket.getQueueToken());
 
         // 5. DB 티켓 상태를 SYNCED로 변경
         ticket.sync();
-        ticketPort.save(ticket);
+        ticketPort.update(ticket);
 
         // 6. active 유저에서 제거
         activeUserPort.deactivate(ticket.getQueueToken());

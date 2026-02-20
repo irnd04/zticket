@@ -51,7 +51,7 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
                     .as("Redis 좌석 상태")
                     .isEqualTo("paid:" + token);
 
-            assertThat(ticketPort.findByUuid(ticket.getUuid()))
+            assertThat(ticketPort.findById(ticket.getId()))
                     .as("DB 티켓 상태")
                     .hasValueSatisfying(dbTicket ->
                             assertThat(dbTicket.getStatus()).isEqualTo(TicketStatus.SYNCED)

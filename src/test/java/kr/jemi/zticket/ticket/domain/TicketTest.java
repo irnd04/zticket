@@ -18,42 +18,33 @@ class TicketTest {
         @Test
         @DisplayName("생성된 티켓은 PAID 상태여야 한다")
         void shouldCreateWithPaidStatus() {
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
 
             assertThat(ticket.getStatus()).isEqualTo(TicketStatus.PAID);
         }
 
         @Test
-        @DisplayName("생성된 티켓은 UUID가 할당되어야 한다")
-        void shouldHaveUuid() {
-            Ticket ticket = Ticket.create("token-1", 7);
+        @DisplayName("생성된 티켓은 전달받은 ID를 가져야 한다")
+        void shouldHaveGivenId() {
+            Ticket ticket = Ticket.create(1, "token-1", 7);
 
-            assertThat(ticket.getUuid()).isNotNull().isNotBlank();
+            assertThat(ticket.getId()).isEqualTo(1);
         }
 
         @Test
         @DisplayName("생성된 티켓은 전달받은 좌석번호와 큐토큰을 가져야 한다")
         void shouldPreserveSeatNumberAndQueueToken() {
-            Ticket ticket = Ticket.create("token-1", 42);
+            Ticket ticket = Ticket.create(1, "token-1", 42);
 
             assertThat(ticket.getSeatNumber()).isEqualTo(42);
             assertThat(ticket.getQueueToken()).isEqualTo("token-1");
         }
 
         @Test
-        @DisplayName("두 번 생성하면 서로 다른 UUID를 가져야 한다")
-        void shouldGenerateUniqueUuids() {
-            Ticket ticket1 = Ticket.create("token-1", 1);
-            Ticket ticket2 = Ticket.create("token-2", 2);
-
-            assertThat(ticket1.getUuid()).isNotEqualTo(ticket2.getUuid());
-        }
-
-        @Test
         @DisplayName("생성된 티켓은 createdAt이 설정되고 updatedAt은 null이어야 한다")
         void shouldHaveCreatedAtAndNullUpdatedAt() {
             LocalDateTime before = LocalDateTime.now();
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
             LocalDateTime after = LocalDateTime.now();
 
             assertThat(ticket.getCreatedAt()).isBetween(before, after);
@@ -63,19 +54,19 @@ class TicketTest {
         @Test
         @DisplayName("생성 시 TicketPaidEvent 도메인 이벤트가 등록된다")
         void shouldRegisterTicketPaidEvent() {
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
 
             List<Object> events = ticket.pullEvents();
             assertThat(events).hasSize(1);
             assertThat(events.getFirst()).isInstanceOf(TicketPaidEvent.class);
-            assertThat(((TicketPaidEvent) events.getFirst()).ticketUuid())
-                    .isEqualTo(ticket.getUuid());
+            assertThat(((TicketPaidEvent) events.getFirst()).ticketId())
+                    .isEqualTo(1);
         }
 
         @Test
-        @DisplayName("clearDomainEvents() 호출 시 이벤트가 비워진다")
+        @DisplayName("pullEvents() 호출 시 이벤트가 비워진다")
         void shouldClearDomainEvents() {
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
             assertThat(ticket.pullEvents()).isNotEmpty();
             assertThat(ticket.pullEvents()).isEmpty();
         }
@@ -88,7 +79,7 @@ class TicketTest {
         @Test
         @DisplayName("생성자로 복원된 티켓은 도메인 이벤트가 없다")
         void shouldHaveNoEventsWhenRestoredFromConstructor() {
-            Ticket ticket = new Ticket(1L, "uuid-1", 7, TicketStatus.PAID, "token-1",
+            Ticket ticket = new Ticket(1L, 7, TicketStatus.PAID, "token-1",
                     LocalDateTime.now(), null);
 
             assertThat(ticket.pullEvents()).isEmpty();
@@ -102,7 +93,7 @@ class TicketTest {
         @Test
         @DisplayName("PAID 상태에서 sync() 호출 시 SYNCED로 전환된다")
         void shouldTransitionFromPaidToSynced() {
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
             assertThat(ticket.getStatus()).isEqualTo(TicketStatus.PAID);
 
             ticket.sync();
@@ -113,8 +104,8 @@ class TicketTest {
         @Test
         @DisplayName("SYNCED 상태에서 sync() 호출 시 IllegalStateException이 발생한다")
         void shouldThrowWhenSyncFromSynced() {
-            Ticket ticket = Ticket.create("token-1", 7);
-            ticket.sync(); // PAID → SYNCED
+            Ticket ticket = Ticket.create(1, "token-1", 7);
+            ticket.sync();
 
             assertThatThrownBy(ticket::sync)
                     .isInstanceOf(IllegalStateException.class)
@@ -124,12 +115,11 @@ class TicketTest {
         @Test
         @DisplayName("sync()는 좌석번호와 UUID를 변경하지 않는다")
         void shouldNotChangeSeatNumberOrUuid() {
-            Ticket ticket = Ticket.create("token-1", 7);
-            String originalUuid = ticket.getUuid();
+            Ticket ticket = Ticket.create(1, "token-1", 7);
 
             ticket.sync();
 
-            assertThat(ticket.getUuid()).isEqualTo(originalUuid);
+            assertThat(ticket.getId()).isEqualTo(1);
             assertThat(ticket.getSeatNumber()).isEqualTo(7);
             assertThat(ticket.getQueueToken()).isEqualTo("token-1");
         }
@@ -137,7 +127,7 @@ class TicketTest {
         @Test
         @DisplayName("sync() 호출 시 updatedAt이 설정된다")
         void shouldSetUpdatedAtOnSync() {
-            Ticket ticket = Ticket.create("token-1", 7);
+            Ticket ticket = Ticket.create(1, "token-1", 7);
             assertThat(ticket.getUpdatedAt()).isNull();
 
             LocalDateTime before = LocalDateTime.now();

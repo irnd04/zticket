@@ -1,5 +1,6 @@
 package kr.jemi.zticket.queue.application;
 
+import io.hypersistence.tsid.TSID;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.queue.application.port.in.AdmitUsersUseCase;
@@ -12,7 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, AdmitUsersUseCase {
@@ -20,6 +20,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     private final WaitingQueueOperator waitingQueueOperator;
     private final ActiveUserPort activeUserPort;
     private final SeatService seatService;
+    private final TSID.Factory tsidFactory;
     private final long activeTtlSeconds;
     private final int maxActiveUsers;
     private final int batchSize;
@@ -27,12 +28,14 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
     public QueueService(WaitingQueueOperator waitingQueueOperator,
                         ActiveUserPort activeUserPort,
                         SeatService seatService,
+                        TSID.Factory tsidFactory,
                         @Value("${zticket.admission.active-ttl-seconds}") long activeTtlSeconds,
                         @Value("${zticket.admission.max-active-users}") int maxActiveUsers,
                         @Value("${zticket.admission.batch-size}") int batchSize) {
         this.waitingQueueOperator = waitingQueueOperator;
         this.activeUserPort = activeUserPort;
         this.seatService = seatService;
+        this.tsidFactory = tsidFactory;
         this.activeTtlSeconds = activeTtlSeconds;
         this.maxActiveUsers = maxActiveUsers;
         this.batchSize = batchSize;
@@ -43,7 +46,7 @@ public class QueueService implements EnterQueueUseCase, GetQueueTokenUseCase, Ad
         if (seatService.getAvailableCount() <= 0) {
             throw new BusinessException(ErrorCode.SOLD_OUT);
         }
-        String uuid = UUID.randomUUID().toString();
+        String uuid = tsidFactory.generate().toLowerCase();
         long rank = waitingQueueOperator.enqueue(uuid);
         return QueueToken.waiting(uuid, rank);
     }

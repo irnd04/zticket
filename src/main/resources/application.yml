@@ -64,6 +64,8 @@ management:
         lettuce: true
 
 zticket:
+  tsid:
+    node-bits: 8
   admission:
     cron: "*/5 * * * * *"
     lock-at-most-for: PT10S

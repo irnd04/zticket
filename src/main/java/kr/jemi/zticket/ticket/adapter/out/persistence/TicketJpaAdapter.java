@@ -19,22 +19,23 @@ public class TicketJpaAdapter implements TicketPort {
 
     @Override
     @Transactional
-    public Ticket save(Ticket ticket) {
-        TicketJpaEntity entity = ticket.getId() != null
-                ? repository.findById(ticket.getId())
-                        .map(existing -> {
-                            existing.update(ticket);
-                            return existing;
-                        })
-                        .orElseThrow(() -> new IllegalStateException(
-                                "티켓을 찾을 수 없습니다: id=" + ticket.getId()))
-                : TicketJpaEntity.fromDomain(ticket);
+    public Ticket insert(Ticket ticket) {
+        TicketJpaEntity entity
+            = TicketJpaEntity.fromDomain(ticket);
         return repository.save(entity).toDomain();
     }
 
+    @Transactional
+    public void update(Ticket ticket) {
+        TicketJpaEntity entity = repository.findById(ticket.getId())
+            .orElseThrow(() ->
+                new IllegalStateException("티켓을 찾을 수 없습니다: id=" + ticket.getId()));
+        entity.update(ticket);
+    }
+
     @Override
-    public Optional<Ticket> findByUuid(String uuid) {
-        return repository.findByUuid(uuid).map(TicketJpaEntity::toDomain);
+    public Optional<Ticket> findById(long ticketId) {
+        return repository.findById(ticketId).map(TicketJpaEntity::toDomain);
     }
 
     @Override

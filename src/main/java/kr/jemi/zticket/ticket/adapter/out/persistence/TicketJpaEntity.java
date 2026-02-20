@@ -10,11 +10,7 @@ import java.time.LocalDateTime;
 public class TicketJpaEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(nullable = false, unique = true)
-    private String uuid;
 
     @Column(nullable = false, unique = true)
     private int seatNumber;
@@ -35,7 +31,7 @@ public class TicketJpaEntity {
 
     public static TicketJpaEntity fromDomain(Ticket ticket) {
         TicketJpaEntity entity = new TicketJpaEntity();
-        entity.uuid = ticket.getUuid();
+        entity.id = ticket.getId();
         entity.seatNumber = ticket.getSeatNumber();
         entity.status = ticket.getStatus();
         entity.queueToken = ticket.getQueueToken();
@@ -45,11 +41,10 @@ public class TicketJpaEntity {
     }
 
     public Ticket toDomain() {
-        return new Ticket(id, uuid, seatNumber, status, queueToken, createdAt, updatedAt);
+        return new Ticket(id, seatNumber, status, queueToken, createdAt, updatedAt);
     }
 
     public void update(Ticket ticket) {
-        this.uuid = ticket.getUuid();
         this.seatNumber = ticket.getSeatNumber();
         this.status = ticket.getStatus();
         this.queueToken = ticket.getQueueToken();
@@ -57,6 +52,5 @@ public class TicketJpaEntity {
         this.updatedAt = ticket.getUpdatedAt();
     }
 
-    public String getUuid() { return uuid; }
     public TicketStatus getStatus() { return status; }
 }

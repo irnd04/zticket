@@ -26,7 +26,7 @@ class AsyncEventIntegrationTest extends IntegrationTestBase {
         // 리스너에서 IllegalStateException("티켓 없음: ...") 발생
 
         // when - 예외 전파 없이 정상 리턴
-        eventPublisher.publishEvent(new TicketPaidEvent("non-existent-uuid"));
+        eventPublisher.publishEvent(new TicketPaidEvent(0));
 
         // then - AsyncUncaughtExceptionHandler가 에러 로그를 남김
         await().atMost(5, SECONDS).untilAsserted(() ->
