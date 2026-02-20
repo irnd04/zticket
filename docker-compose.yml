@@ -107,7 +107,7 @@ services:
   k6-queue:
     image: grafana/k6:latest
     container_name: zticket-k6-queue
-    profiles: ["k6"]
+    profiles: ["k6-stress"]
     volumes:
       - ./k6:/scripts
     environment:
@@ -124,7 +124,7 @@ services:
   k6-enter:
     image: grafana/k6:latest
     container_name: zticket-k6-enter
-    profiles: ["k6"]
+    profiles: ["k6-stress"]
     volumes:
       - ./k6:/scripts
     environment:
@@ -137,6 +137,23 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
+  k6-full-flow:
+    image: grafana/k6:latest
+    container_name: zticket-k6-full-flow
+    profiles: ["k6-full-flow"]
+    volumes:
+      - ./k6:/scripts
+    environment:
+      BASE_URL: http://app:8080
+    command: run --no-summary /scripts/full-flow.js
+    depends_on:
+      - app
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
 
 volumes:
   mysql-data:

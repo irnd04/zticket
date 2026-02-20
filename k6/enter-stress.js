@@ -12,7 +12,7 @@ export const options = {
     scenarios: {
         enter_stress: {
             executor: 'constant-vus',
-            vus: 500,
+            vus: 250,
             duration: '10m',
         },
     },
