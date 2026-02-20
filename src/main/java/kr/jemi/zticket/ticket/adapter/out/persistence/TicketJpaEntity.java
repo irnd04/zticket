@@ -6,7 +6,7 @@ import kr.jemi.zticket.ticket.domain.TicketStatus;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "tickets")
+@Table(name = "tickets", indexes = @Index(name = "idx_ticket_status", columnList = "status"))
 public class TicketJpaEntity {
 
     @Id

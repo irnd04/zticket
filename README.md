@@ -463,7 +463,21 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 2. 대기열: Redis Sorted Set vs 메시지 큐 (Kafka/RabbitMQ)
+### 2. PAID 동기화: status 인덱스 폴링 vs Outbox 패턴
+
+#### 선택: `WHERE status = 'PAID'` 폴링 + status 인덱스
+
+구매 후 Redis 동기화가 실패하면 DB에 PAID 상태로 남습니다. 스케줄러(1분 주기)가 `status = 'PAID'` 인 티켓을 조회하여 Redis를 복원합니다. status 컬럼에 인덱스를 걸어 조회 성능을 확보합니다.
+
+**Outbox 패턴을 사용하지 않는 이유**:
+
+Outbox 패턴은 비즈니스 데이터와 이벤트(outbox)를 같은 트랜잭션에 저장하여 발행을 보장하고, 처리 후 삭제하는 방식입니다. 이 프로젝트에서는 채택하지 않았습니다.
+
+입장 스케줄러가 동시 active 유저 수를 제한하므로, 구매가 동시에 폭주하지 않습니다. PAID 상태는 비동기 동기화가 완료되기까지의 짧은 순간에만 존재하고, 정상 흐름에서는 즉시 SYNCED로 전환됩니다. ticket 테이블의 크기도 총 좌석 수(1,000석)로 제한되므로, `WHERE status = 'PAID'` 조회에 성능 문제가 없습니다.
+
+---
+
+### 3. 대기열: Redis Sorted Set vs 메시지 큐 (Kafka/RabbitMQ)
 
 #### 선택: Redis Sorted Set (`ZADD`, `ZRANK`, `ZRANGE + ZREM`)
 
@@ -481,7 +495,7 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 3. 1티켓-1좌석: 단일 좌석 vs 다중 좌석 선택
+### 4. 1티켓-1좌석: 단일 좌석 vs 다중 좌석 선택
 
 #### 선택: 1티켓 = 1좌석 (`seatNumber: int`)
 
@@ -495,7 +509,7 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 
 ---
 
-### 4. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
+### 5. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
 
 #### 선택: 도메인 엔티티에서 상태 전이 후 save
 
@@ -529,7 +543,7 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 5. 클라이언트 통신: 폴링 vs WebSocket vs SSE
+### 6. 클라이언트 통신: 폴링 vs WebSocket vs SSE
 
 #### 선택: 5초 주기 HTTP 폴링
 
@@ -545,7 +559,7 @@ public Ticket save(Ticket ticket) {
 - **불필요한 요청**: 순번 변화가 없어도 5초마다 요청을 보냅니다. 대기자 50만 명 × 0.2 req/s = ~100,000 req/s.
 - **최대 5초 지연**: 입장이 허용된 직후부터 최대 5초 후에야 클라이언트가 인지합니다.
 
-### 6. 스레드 모델: Virtual Thread vs Platform Thread
+### 7. 스레드 모델: Virtual Thread vs Platform Thread
 
 #### 선택: Java 25 Virtual Thread (`spring.threads.virtual.enabled: true`)
 
