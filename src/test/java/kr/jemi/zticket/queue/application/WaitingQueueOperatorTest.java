@@ -85,20 +85,6 @@ class WaitingQueueOperatorTest {
             // then
             assertThat(rank).isEqualTo(10L);
         }
-
-        @Test
-        @DisplayName("대기열에 없으면 null을 반환한다")
-        void shouldReturnNullWhenNotInQueue() {
-            // given
-            given(waitingQueuePort.getRank("uuid-1")).willReturn(null);
-
-            // when
-            Long rank = operator.getRank("uuid-1");
-
-            // then
-            assertThat(rank).isNull();
-            then(waitingQueueHeartbeatPort).should(never()).getScores(anyList());
-        }
     }
 
     @Nested

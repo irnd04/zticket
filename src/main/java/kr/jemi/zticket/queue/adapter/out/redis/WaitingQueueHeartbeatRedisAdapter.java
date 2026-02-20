@@ -25,17 +25,6 @@ public class WaitingQueueHeartbeatRedisAdapter implements WaitingQueueHeartbeatP
     }
 
     @Override
-    public List<Long> getScores(List<String> uuids) {
-        if (uuids.isEmpty()) {
-            return List.of();
-        }
-        List<Double> scores = redisTemplate.opsForZSet().score(KEY, uuids.toArray());
-        return scores.stream()
-                .map(s -> s != null ? s.longValue() : null)
-                .toList();
-    }
-
-    @Override
     public List<String> findExpired(long cutoffTimestamp, int size) {
         Set<String> batch = redisTemplate.opsForZSet()
                 .rangeByScore(KEY, Double.NEGATIVE_INFINITY, cutoffTimestamp, 0, size);

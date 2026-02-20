@@ -23,11 +23,11 @@ public class WaitingQueueRedisAdapter implements WaitingQueuePort {
     @Override
     public long enqueue(String uuid) {
         redisTemplate.opsForZSet().add(KEY, uuid, System.currentTimeMillis());
-        Long rank = redisTemplate.opsForZSet().rank(KEY, uuid);
+        Long rank = this.getRank(uuid);
         if (rank == null) {
-            return -1;
+            throw new IllegalStateException("rank는 null일 수 없습니다.");
         }
-        return rank + 1;
+        return rank;
     }
 
     @Override

@@ -1,4 +1,4 @@
-package kr.jemi.zticket.seat.adapter.out.redis;
+package kr.jemi.zticket.seat.adapter.out.redis.dto;
 
 import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
@@ -6,9 +6,9 @@ import kr.jemi.zticket.seat.domain.SeatStatus;
 /**
  * Redis에 저장된 좌석 값("held:uuid", "paid:uuid", null)을 파싱하는 adapter DTO.
  */
-record RedisSeat(SeatStatus status, String owner) {
+public record RedisSeat(SeatStatus status, String owner) {
 
-    static RedisSeat from(String redisValue) {
+    public static RedisSeat from(String redisValue) {
         if (redisValue == null) {
             return new RedisSeat(SeatStatus.AVAILABLE, null);
         }
@@ -21,7 +21,7 @@ record RedisSeat(SeatStatus status, String owner) {
         throw new IllegalArgumentException("알 수 없는 Redis 좌석 값: " + redisValue);
     }
 
-    Seat toDomain() {
+    public Seat toDomain() {
         return new Seat(status, owner);
     }
 }

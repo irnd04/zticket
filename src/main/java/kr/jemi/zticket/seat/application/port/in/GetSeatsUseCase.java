@@ -4,5 +4,5 @@ import kr.jemi.zticket.seat.domain.Seats;
 
 public interface GetSeatsUseCase {
 
-    Seats getSeats(String token);
+    Seats getSeats();
 }

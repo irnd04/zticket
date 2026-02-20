@@ -23,7 +23,7 @@ public class SeatService implements GetSeatsUseCase {
     }
 
     @Override
-    public Seats getSeats(String token) {
+    public Seats getSeats() {
         List<Integer> allSeats = IntStream.rangeClosed(1, totalSeats)
                 .boxed()
                 .toList();
@@ -32,11 +32,7 @@ public class SeatService implements GetSeatsUseCase {
 
     @Cacheable(value = "availableCount", sync = true)
     public int getAvailableCount() {
-        return getAvailableCountNoCache();
-    }
-
-    public int getAvailableCountNoCache() {
-        Seats statuses = getSeats(null);
+        Seats statuses = getSeats();
         return (int) statuses.seatNumbers().stream()
             .filter(seat -> statuses.of(seat).isAvailableFor(null))
             .count();

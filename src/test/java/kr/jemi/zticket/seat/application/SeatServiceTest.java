@@ -43,7 +43,7 @@ class SeatServiceTest {
         given(seatPort.getStatuses(anyList())).willReturn(portStatuses);
 
         // when
-        Seats result = seatService.getSeats("token-1");
+        Seats result = seatService.getSeats();
 
         // then
         assertThat(result.of(1)).isEqualTo(new Seat(SeatStatus.HELD, "token-1"));

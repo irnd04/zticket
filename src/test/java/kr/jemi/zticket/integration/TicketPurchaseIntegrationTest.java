@@ -96,11 +96,11 @@ class TicketPurchaseIntegrationTest extends IntegrationTestBase {
         purchaseTicketUseCase.purchase("token-1", 3);
 
         await().atMost(5, SECONDS).untilAsserted(() -> {
-            Seats statuses = getSeatsUseCase.getSeats(null);
+            Seats statuses = getSeatsUseCase.getSeats();
             assertThat(statuses.of(3)).isEqualTo(new Seat(SeatStatus.PAID, "token-1"));
         });
 
-        Seats statuses = getSeatsUseCase.getSeats(null);
+        Seats statuses = getSeatsUseCase.getSeats();
         assertThat(statuses.of(1)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
         assertThat(statuses.of(2)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));
         assertThat(statuses.of(4)).isEqualTo(new Seat(SeatStatus.AVAILABLE, null));

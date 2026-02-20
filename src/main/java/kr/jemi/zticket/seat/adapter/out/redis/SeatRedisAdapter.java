@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import kr.jemi.zticket.seat.adapter.out.redis.dto.RedisSeat;
 import kr.jemi.zticket.seat.application.port.out.SeatPort;
 import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.Seats;
@@ -67,8 +68,9 @@ public class SeatRedisAdapter implements SeatPort {
         List<String> values = redisTemplate.opsForValue().multiGet(keys);
         Map<Integer, Seat> statuses = new HashMap<>();
         for (int i = 0; i < seatNumbers.size(); i++) {
-            String value = values != null ? values.get(i) : null;
-            statuses.put(seatNumbers.get(i), RedisSeat.from(value).toDomain());
+            String value = values.get(i);
+            int seatNumber = seatNumbers.get(i);
+            statuses.put(seatNumber, RedisSeat.from(value).toDomain());
         }
         return new Seats(statuses);
     }

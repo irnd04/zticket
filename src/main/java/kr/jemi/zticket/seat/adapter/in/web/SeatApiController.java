@@ -24,7 +24,7 @@ public class SeatApiController {
     @GetMapping("/api/seats")
     public ResponseEntity<List<SeatStatusResponse>> getStatus(
             @RequestHeader("X-Queue-Token") String token) {
-        Seats seatStatuses = seatService.getSeats(token);
+        Seats seatStatuses = seatService.getSeats();
         List<SeatStatusResponse> response = seatStatuses.seatNumbers().stream()
                 .map(seatNo -> {
                     Seat seat = seatStatuses.of(seatNo);
