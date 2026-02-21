@@ -80,25 +80,16 @@ flowchart TD
 sequenceDiagram
     participant U as 사용자
     participant Q as QueueService
-    participant O as WaitingQueueOperator
     participant R as Redis
 
     U->>Q: POST /api/queues/tokens
-    Q->>O: enqueue(token)
-    O->>R: ZADD waiting_queue (score=진입시각)
-    O->>R: ZADD waiting_queue_heartbeat (score=진입시각)
-    R-->>O: rank
-    O-->>Q: rank
+    Q->>R: ZADD waiting_queue(대기열) + waiting_queue_heartbeat(생존 감지)
+    R-->>Q: rank
     Q-->>U: { token, rank }
 ```
 
-- `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
-
-**시간복잡도** (N = 대기열 인원):
-
-| 연산 | 명령 | 시간 복잡도 | 빈도 |
-|------|------|--------|------|
-| 진입 | ZADD × 2 | O(log N) | 유저당 1회 |
+- `waiting_queue`(대기열)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
+- 모든 연산이 O(log N)이므로 대기자 수가 늘어도 연산당 처리 시간은 완만하게 증가
 
 ### 2. 대기열 폴링
 
@@ -106,22 +97,16 @@ sequenceDiagram
 sequenceDiagram
     participant U as 사용자
     participant Q as QueueService
-    participant O as WaitingQueueOperator
     participant R as Redis
 
     loop 5초 폴링
-        U->>Q: GET /api/queues/tokens/{token}
-        alt active_user:{token} 존재
+        U->>Q: GET /api/queues/tokens/{token} 대기열 상태 조회
+        alt active_user:{token} 존재 (입장 가능 상태)
             Q-->>U: ACTIVE → 좌석 선택 페이지로 이동
-        else 잔여 좌석 = 0
+        else 잔여 좌석 = 0 (매진)
             Q-->>U: SOLD_OUT → 매진 안내
         else 대기 중
-            Q->>O: getRank(token)
-            O->>R: ZRANK waiting_queue
-            R-->>O: rank
-            O-->>Q: rank (없으면 null)
-            Q->>O: refresh(token)
-            O->>R: ZADD waiting_queue_heartbeat (score=현재시각)
+            Q->>R: ZRANK waiting_queue + waiting_queue_heartbeat 갱신
             Q-->>U: WAITING (현재 순번)
         end
     end
@@ -130,15 +115,6 @@ sequenceDiagram
 - `waiting_queue_heartbeat`의 score만 현재 시각으로 갱신 (순서를 유지하기 위해 `waiting_queue`는 건드리지 않음)
 - **SOLD_OUT 판정**: 잔여 좌석이 0이면 대기열 순번 조회 없이 즉시 SOLD_OUT 반환
 
-**시간복잡도** (N = 대기열 인원):
-
-| 연산 | 명령 | 시간 복잡도 | 빈도 |
-|------|------|--------|------|
-| heartbeat 갱신 | ZADD × 1 | O(log N) | 유저당 5초마다 |
-| rank 조회 | ZRANK | O(log N) | 유저당 5초마다 |
-
-모든 연산이 O(log N)이므로 대기자 수가 늘어도 연산당 처리 시간은 완만하게 증가합니다.
-
 ### 3. 입장 스케줄러 플로우
 
 `AdmissionScheduler`(5초 주기)에서 **잠수 유저 제거 → 입장**을 한 번에 처리합니다.
@@ -146,48 +122,19 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant S as AdmissionScheduler<br/>(매 5초)
-    participant Q as QueueService
-    participant O as WaitingQueueOperator
-    participant A as ActiveUserPort
-    participant SS as SeatService
+    participant AS as AdmissionService
     participant R as Redis
 
-    S->>Q: admitBatch()
+    S->>AS: admitBatch()
 
-    Note over Q: removeExpired: 잠수 유저 제거
-    loop findExpired 결과가 요청 size보다 작을 때까지
-        Q->>O: findExpired(5000)
-        O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff LIMIT 0 5000
-        R-->>O: 잠수 token 목록
-        Q->>O: removeAll(expiredTokens)
-        O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
-    end
-
-    Note over Q: 입장 인원 계산
-    Q->>A: countActive()
-    A->>R: SCAN active_user:*
-    R-->>A: currentActive
-    Q->>SS: getAvailableCount()
-    SS-->>Q: remainingSeats
-    Note over Q: toAdmit = min(batchSize, 빈 슬롯, 잔여 좌석 - active 유저)
-
-    Note over Q: peek
-    Q->>O: peek(toAdmit)
-    O->>R: ZRANGE waiting_queue 0 (toAdmit-1)
-    R-->>O: FIFO 순서 후보
-    O-->>Q: token 목록
-
-    Note over Q: activate
-    Q->>A: activateBatch(tokens, ttl)
-    A->>R: Pipeline SET active_user:{token} "1" EX 300 (일괄)
-
-    Note over Q: remove
-    Q->>O: removeAll(tokens)
-    O->>R: ZREM waiting_queue {tokens}
-    O->>R: ZREM waiting_queue_heartbeat {tokens}
+    AS->>R: 1. waiting_queue_heartbeat를 이용해서 잠수 유저 제거
+    AS->>R: 2. 입장 가능 인원 계산
+    AS->>R: 3. waiting_queue FIFO 순서로 후보 조회
+    AS->>R: 4. 조회한 유저 토큰으로 active_user 키 생성 + TTL 300초 = 입장 (티켓 구매 권한 획득) 
+    AS->>R: 5. waiting_queue에서 제거 (대기열에서 제거)
 ```
 
-**removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
+**잠수유저 제거 → FIFO 순서로 후보조회 -> active_user 키 생성 → waiting_queue에서 제거 **: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. active_user 등록 후 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
 
 ### 4. 구매 플로우
 
@@ -197,37 +144,17 @@ sequenceDiagram
 sequenceDiagram
     participant C as 클라이언트
     participant T as TicketService
-    participant W as TicketWriter<br/>(@Transactional)
-    participant L as TicketPaidEventListener
     participant R as Redis
     participant DB as MySQL
 
     C->>T: POST /api/tickets
-
-    T->>R: 1. isActive(token)
-    alt 비활성 사용자
-        R-->>T: false
-        T-->>C: NOT_ACTIVE_USER
-    end
-    R-->>T: true
-
-    T->>R: 2. SET seat:N "held:{token}" NX EX 300
-    alt 이미 선점된 좌석
-        R-->>T: false
-        T-->>C: SEAT_ALREADY_HELD
-    end
-    R-->>T: true
-
-    T->>W: 3. insertAndPublish(ticket)
-    Note over W,DB: 같은 트랜잭션 내에서<br/>INSERT ticket + INSERT event_publication
-    W->>DB: INSERT ticket (status=PAID)
-    W->>DB: INSERT event_publication (Outbox)
+    T->>R: 1. active_user:{token} 존재 확인 - Ticket 구매가 가능한 유저인지?
+    T->>R: 2. Redis SET seat held + TTL 300 — 좌석 선점(held)
+    T->>DB: 3. INSERT ticket (구매 확정 = PAID) + event_publication (Outbox)
     alt DB 저장 실패
         T->>R: Lua: held:{token}일 때만 DEL seat:N (롤백)
-        T-->>C: INTERNAL_ERROR
     end
-
-    T-->>C: PAID 티켓 반환 (구매 확정)
+    T-->>C: PAID 티켓 반환
 ```
 
 ### 5. 비동기 Redis 동기화: Outbox 패턴 + 재발행 스케줄러
@@ -242,15 +169,10 @@ sequenceDiagram
     participant R as Redis
     participant DB as MySQL
 
-    Note over DB: 트랜잭션 커밋 → event_publication에서 이벤트 전달
-
-    DB-->>L: TicketPaidEvent
-    L->>DB: findById(ticketId)
-    DB-->>L: Ticket (PAID)
-
-    L->>R: SET seat:N "paid:{token}" (held → paid 전환)
-    L->>DB: UPDATE ticket SET status=SYNCED
-    L->>R: DEL active_user:{token}
+    DB-->>L: TicketPaidEvent (트랜잭션 커밋 후 전달)
+    L->>R: Redis SET seat paid + TTL 제거 (구매 확정 동기화)
+    L->>DB: Ticket PAID → SYNCED
+    L->>R: active_user 제거 (입장 권한 회수)
     L->>DB: event_publication 완료 처리
 ```
 
@@ -273,9 +195,9 @@ flowchart TD
 
 이 시스템의 가장 어려운 문제는 **Redis와 DB 간의 상태 불일치**입니다. 두 저장소에 걸친 연산은 분산 트랜잭션이 불가능하므로, 장애 시나리오별 대응 전략을 설계했습니다.
 
-### 1. Redis-DB 장애 시나리오와 복구
+### 1. 구매 플로우 Redis-DB간 실패 시나리오와 복구
 
-#### Case 1: Redis held 성공 → DB INSERT 실패
+#### Case 1: 좌석 선점(held) 성공 → 구매 확정(INSERT ticket) 실패
 
 - **사용자 응답**: INTERNAL_ERROR (구매 실패)
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB 레코드 없음
@@ -283,15 +205,15 @@ flowchart TD
 - 롤백마저 실패해도 held 키의 TTL(5분)이 자동 해제합니다.
 - **중복 판매 불가능**: DB에 레코드 자체가 없으므로 판매된 적이 없습니다.
 
-#### Case 2-1: DB PAID 성공 → 비동기 Redis paid 전환 실패 (또는 서버 사망)
+#### Case 2-1: 구매 확정(INSERT ticket) 성공 → 비동기 Redis 구매확정 동기화(paid) 실패
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
-- Redis에 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
+- Redis는 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
 - Outbox(`event_publication`)에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 Redis를 복원합니다.
 - **중복 판매 불가능**: 이벤트 처리가 늦어져 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
 
-#### Case 2-2: DB INSERT 성공했으나 타임아웃으로 실패 응답
+#### Case 2-2: 구매 확정(INSERT ticket) 성공했으나 타임아웃으로 실패 응답
 
 - **시나리오**: Redis held 성공 → DB INSERT 전송 → DB는 커밋 성공 → 그러나 네트워크 타임아웃으로 애플리케이션은 예외 수신
 - **사용자 응답**: INTERNAL_ERROR (구매 실패로 인식)
@@ -300,11 +222,11 @@ flowchart TD
 - **Lua DEL과 이벤트 리스너의 경합**: catch 블록의 Lua DEL과 Outbox 이벤트 리스너의 `SET paid`가 동시에 실행될 수 있지만, 어느 순서든 안전합니다. Lua DEL이 먼저 실행되면 리스너가 `SET paid`로 복원하고, 리스너가 먼저 `SET paid`를 실행하면 Lua가 `"paid:{token}" ≠ "held:{token}"`으로 판단하여 삭제하지 않습니다.
 - **중복 판매 불가능**: Redis 키가 잠시 삭제되어 다른 사용자가 hold할 수 있지만, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다. 사용자에게는 실패로 응답되었지만 실제로는 구매가 완료된 상태이므로, 티켓 조회(마이페이지 등)에서 확인할 수 있습니다.
 
-#### Case 3: 이벤트 리스너 처리 중 실패 (paid 전환 / SYNCED 갱신 / active 제거)
+#### Case 3: 이벤트 리스너 처리 중 실패 (Redis 구매확정 동기화(paid) / Ticket PAID -> SYNCED / 입장 권한 회수(DEL active_user))
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
-- **상태**: 리스너가 `SET paid` → `UPDATE SYNCED` → `DEL active_user` 중 어느 단계에서든 실패하면, `event_publication`이 미완료로 남습니다.
-- **복구**: 재발행 스케줄러가 미완료 이벤트를 재발행하여 리스너를 재실행합니다. 리스너의 모든 연산은 멱등합니다 — `SET paid`는 동일한 값을 덮어쓰고, `SYNCED` 갱신은 이미 SYNCED면 무시되며, `DEL active_user`는 이미 없어도 에러가 없습니다.
+- **상태**: 리스너가 `Redis SET seat paid` → `Ticket PAID -> SYNCED` → `DEL active_user` 중 어느 단계에서든 실패하면, `event_publication`이 미완료로 남습니다.
+- **복구**: 재발행 스케줄러가 미완료 이벤트를 재발행하여 리스너를 재실행합니다. 리스너의 모든 연산은 멱등합니다 — `Redis SET seat paid`는 동일한 값을 덮어쓰고, `Ticket PAID -> SYNCED` 갱신은 이미 SYNCED면 무시되며, `DEL active_user`는 이미 없어도 에러가 없습니다.
 - **중복 판매 불가능**: Redis가 이미 paid로 영구 점유되었다면 다른 사용자의 hold가 불가능하고, 아직 held 상태라도 DB `seat_number UNIQUE` 제약이 최종 방어선입니다. `active_user` 키는 TTL(5분)로 자동 만료됩니다.
 
 ---
@@ -826,7 +748,9 @@ kr.jemi.zticket
 │   │   │       ├── ActiveUserPort.java            active 유저 SET 조작
 │   │   │       └── AvailableSeatCountPort.java    잔여 좌석 수 조회 (→ seat 모듈)
 │   │   └── service/
-│   │       ├── QueueService.java                  대기열 비즈니스 로직 + QueueFacade 구현
+│   │       ├── QueueService.java                  대기열 진입·조회
+│   │       ├── AdmissionService.java              잠수 제거 + 배치 입장
+│   │       ├── ActiveUserService.java             active 유저 조회·비활성화 (QueueFacade 구현)
 │   │       └── WaitingQueueOperator.java          대기열+heartbeat 조합 연산
 │   └── infrastructure/
 │       ├── in/
