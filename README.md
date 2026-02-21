@@ -130,11 +130,11 @@ sequenceDiagram
     AS->>R: 1. waiting_queue_heartbeat를 이용해서 잠수 유저 제거
     AS->>R: 2. 입장 가능 인원 계산
     AS->>R: 3. waiting_queue 대기열에서 선착순으로 입장 대상 조회
-    AS->>R: 4. 조회한 유저 토큰으로 active_user 키 생성 + TTL 300초 = 입장 (티켓 구매 권한 획득) 
+    AS->>R: 4. 조회한 유저 토큰으로 active_user 키 생성 + TTL 300초 = 입장 (입장 권한 획득) 
     AS->>R: 5. waiting_queue에서 제거 (대기열에서 제거)
 ```
 
-active_user 등록 후에야 대기열에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
+`active_user` 등록 후 `waiting_queue`에서 제거하므로 "대기열에서는 빠졌는데 입장은 안 된" 상태가 발생하지 않습니다.
 
 ### 4. 구매 플로우
 
@@ -159,7 +159,7 @@ sequenceDiagram
 
 ### 5. 비동기 Redis 동기화: Outbox 패턴 + 재발행 스케줄러
 
-구매 확정(DB PAID) 후 Redis 상태 동기화는 비동기로 처리됩니다. Spring Modulith의 Outbox 패턴이 이벤트 전달을 보장하고, 실패 시 재발행 스케줄러가 복구합니다.
+구매 확정(DB PAID) 후 Redis 상태 동기화는 비동기로 처리됩니다. `Spring Modulith`의 Outbox 패턴이 이벤트 전달을 보장하고, 실패 시 재발행 스케줄러가 복구합니다.
 
 **정상 흐름**: 트랜잭션 커밋 시 `ticket`과 `event_publication`이 함께 저장됩니다. 커밋 후 리스너가 비동기로 이벤트를 수신하여 Redis 동기화를 수행하고, 완료되면 `event_publication` 레코드가 완료 처리됩니다.
 
@@ -195,7 +195,7 @@ flowchart TD
 
 이 시스템의 가장 어려운 문제는 **Redis와 DB 간의 상태 불일치**입니다. 두 저장소에 걸친 연산은 분산 트랜잭션이 불가능하므로, 장애 시나리오별 대응 전략을 설계했습니다.
 
-### 1. 구매 플로우 Redis-DB간 실패 시나리오와 복구
+### 1. 구매 플로우 Redis-DB간 상태 불일치 시나리오
 
 #### Case 1: 좌석 선점(held) 성공 → 구매 확정(INSERT ticket) 실패
 
@@ -208,7 +208,7 @@ flowchart TD
 #### Case 2-1: 구매 확정(INSERT ticket) 성공 → 비동기 Redis 구매확정 동기화(paid) 실패
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
-- **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
+- **상태**: Redis `held:{token}` (TTL 째깍째깍) + Ticket `PAID`
 - Redis는 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
 - Outbox(`event_publication`)에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 Redis를 복원합니다.
 - **중복 판매 불가능**: 이벤트 처리가 늦어져 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
@@ -217,9 +217,9 @@ flowchart TD
 
 - **시나리오**: Redis held 성공 → DB INSERT 전송 → DB는 커밋 성공 → 그러나 네트워크 타임아웃으로 애플리케이션은 예외 수신
 - **사용자 응답**: INTERNAL_ERROR (구매 실패로 인식)
-- **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + DB `PAID` 레코드 + `event_publication` 레코드 존재
+- **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + Ticket `PAID` 레코드 + `event_publication` 레코드 존재
 - **복구**: DB 커밋이 성공했으므로 `event_publication`에 이벤트가 저장되어 있고, 정상 Outbox 흐름으로 리스너가 자동 처리하여 `SET seat:{n} paid:{token}`으로 Redis를 복원합니다.
-- **Lua DEL과 이벤트 리스너의 경합**: catch 블록의 Lua DEL과 Outbox 이벤트 리스너의 `SET paid`가 동시에 실행될 수 있지만, 어느 순서든 안전합니다. Lua DEL이 먼저 실행되면 리스너가 `SET paid`로 복원하고, 리스너가 먼저 `SET paid`를 실행하면 Lua가 `"paid:{token}" ≠ "held:{token}"`으로 판단하여 삭제하지 않습니다.
+- **Lua DEL과 이벤트 리스너의 경합**: catch 블록의 Lua DEL과 Outbox 이벤트 리스너의 `SET seat paid`가 동시에 실행될 수 있지만, 어느 순서든 안전합니다. Lua DEL이 먼저 실행되면 리스너가 `SET seat paid`로 복원하고, 리스너가 먼저 `SET seat paid`를 실행하면 Lua가 `"paid:{token}" ≠ "held:{token}"`으로 판단하여 삭제하지 않습니다.
 - **중복 판매 불가능**: Redis 키가 잠시 삭제되어 다른 사용자가 hold할 수 있지만, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다. 사용자에게는 실패로 응답되었지만 실제로는 구매가 완료된 상태이므로, 티켓 조회(마이페이지 등)에서 확인할 수 있습니다.
 
 #### Case 3: 이벤트 리스너 처리 중 실패 (Redis 구매확정 동기화(paid) / Ticket PAID -> SYNCED / 입장 권한 회수(DEL active_user))
