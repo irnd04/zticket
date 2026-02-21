@@ -267,8 +267,6 @@ flowchart TD
     style END fill:#9f9,stroke:#333
 ```
 
-**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 저장된 티켓은 구매 확정입니다. Outbox 패턴이 이벤트 발행을 보장하고, 재발행 스케줄러가 실패한 이벤트를 복구합니다.
-
 ---
 
 ## 데이터 정합성
@@ -345,7 +343,7 @@ end
 
 ### 3. 대기열 관리: 잠수 제거 + 입장
 
-대기열은 Sorted Set 2개로 관리한다.
+대기열은 Sorted Set 2개로 관리합니다.
 
 ```
 waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
@@ -362,26 +360,33 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 입장 (`admitBatch` 3단계) | ZRANGE(peek) + ZREM | ZREM |
 
 **왜 Sorted Set 2개?**
-- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀐다.
-- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했다.
-- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리. 키스페이스를 오염시키지 않는다.
+- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀝니다.
+- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했습니다.
+- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리하여 키스페이스를 오염시키지 않습니다.
 
 #### 잠수 유저 제거 + 입장 제어 (removeExpired → peek → activate → remove)
 
-`AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리한다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한한다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 한다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)한다.
+`AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리합니다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한합니다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 합니다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)합니다.
 
-잠수 유저를 먼저 제거하므로, 이후 `peek`은 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 된다.
+잠수 유저를 먼저 제거하므로, 이후 `peek`은 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 됩니다.
 
-**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수된다. 5분 뒤 자동 만료되어 슬롯이 반환된다.
+**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수됩니다. 5분 뒤 자동 만료되어 슬롯이 반환됩니다.
 
-**active 유저 카운트 — SCAN 사용 이유**: `active_user:{uuid}` 패턴의 키 수를 세야 하는데, Redis에는 접두사 인덱스가 없다. `KEYS`는 블로킹, `SCAN`은 커서 기반 논블로킹. `SCAN`은 정확한 값을 보장하지 않지만, 입장 제어에는 정확한 수가 필요 없다. 다소 많거나 적게 입장시켜도 다음 주기에 보정된다.
+**active 유저 카운트 — SCAN vs Sorted Set**:
+
+| | 개별 키 + `SCAN` (현재) | Sorted Set + `ZCARD` |
+|------|------------------------|---------------------|
+| 시간복잡도 | `SCAN` O(전체 키 수), 근사값 | `ZCARD` O(1), 정확값 |
+| TTL 만료 | 키 단위 TTL 자동 만료 | 멤버 단위 TTL 미지원, 만료 로직 직접 구현 필요 |
+
+현재 active 유저는 최대 `maxActiveUsers`(1,000명) 수준으로 키 개수가 적고, 입장 제어에 정확한 수가 필요하지 않으므로 개별 키 + `SCAN`을 선택했습니다. 다소 많거나 적게 입장시켜도 다음 주기에 보정됩니다.
 
 **removeExpired → peek → activate → remove 4단계 분리**:
 
-- **removeExpired**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거. 이후 peek이 단순해진다.
-- **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만.
-- **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성. 멱등 연산이라 재실행해도 TTL만 갱신. 서버가 죽으면 다음 주기에 다시 처리.
-- **remove**: activate 완료 후에야 큐에서 제거. "큐에서는 빠졌는데 active는 안 된" 상태가 안 생긴다.
+- **removeExpired**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거합니다. 이후 peek이 단순해집니다.
+- **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만 합니다.
+- **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성합니다. 멱등 연산이라 재실행해도 TTL만 갱신됩니다. 서버가 죽으면 다음 주기에 다시 처리됩니다.
+- **remove**: activate 완료 후에야 큐에서 제거합니다. "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
 **시간복잡도** (N = 대기열 인원, K = 입장 인원, M = 잠수 유저 수):
 
