@@ -454,7 +454,7 @@ Service가 Repository 구체 클래스에 직접 의존하는 대신, applicatio
 
 ```java
 // TicketJpaAdapter.java - Port 구현체
-public Ticket save(Ticket ticket) {
+public Ticket insert(Ticket ticket) {
     TicketJpaEntity entity = TicketJpaEntity.fromDomain(ticket);  // 도메인 → JPA
     return repository.save(entity).toDomain();                     // JPA → 도메인
 }
@@ -750,17 +750,17 @@ Row 단위로 그룹핑되어 있으며, 각 Row를 클릭하면 접고 펼 수 
 |------|------|
 | GC STW Duration | GC 1회당 평균/최대 Stop-The-World 시간 |
 | GC Count Rate | 초당 GC 발생 횟수 (action/cause별) |
-| Full GC / Humongous Allocation Count | Major GC와 Humongous 할당 발생률. 0이 아니면 주의 |
+| Full GC / Humongous Allocation Count | Full GC는 0이 아니면 주의. Humongous 할당은 빈번하면 단편화·GC 유발 가능 |
 | Heap Usage After GC | GC 후 Old 영역 사용률. 90% 이상이면 힙 부족 또는 메모리 누수 의심 |
-| GC Overhead | 전체 CPU 시간 중 GC에 소비되는 비율. 10% 이상이면 주의, 25% 이상이면 심각 |
-| Memory Promoted / Allocated Rate | Eden 할당 속도(allocated)와 Old 승격 속도(promoted). 승격이 많으면 Full GC 위험 |
+| GC Overhead | 전체 CPU 시간 중 GC에 소비되는 비율 |
+| Memory Promoted / Allocated Rate | Eden 할당 속도(allocated)와 Old 승격 속도(promoted). 승격이 지속적으로 높으면 Old 영역 압박 |
 
 #### App - Database Pool
 
 | 패널 | 설명 |
 |------|------|
 | HikariCP Acquire Time | DB 커넥션 획득까지 평균/최대 대기 시간 |
-| HikariCP Connection Timeout | 커넥션 획득 타임아웃 발생률. 0이 아니면 풀 크기 부족 |
+| HikariCP Connection Timeout | 커넥션 획득 타임아웃 발생률. 0이 아니면 풀 크기 부족, 슬로우 쿼리, 커넥션 누수 등 의심 |
 
 #### Redis - Client (Lettuce)
 
