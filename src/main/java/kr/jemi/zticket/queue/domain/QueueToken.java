@@ -1,6 +1,19 @@
 package kr.jemi.zticket.queue.domain;
 
-public record QueueToken(String token, long rank, QueueStatus status) {
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import kr.jemi.zticket.common.validation.SelfValidating;
+
+public record QueueToken(@NotBlank String token, @Min(0) long rank, @NotNull QueueStatus status)
+        implements SelfValidating {
+
+    public QueueToken(String token, long rank, QueueStatus status) {
+        this.token = token;
+        this.rank = rank;
+        this.status = status;
+        validateSelf();
+    }
 
     public static QueueToken waiting(String token, long rank) {
         return new QueueToken(token, rank, QueueStatus.WAITING);
