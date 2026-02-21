@@ -159,7 +159,7 @@ sequenceDiagram
         Q->>O: findExpired(5000)
         O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff LIMIT 0 5000
         R-->>O: 잠수 token 목록
-        Q->>O: removeAll(expiredUuids)
+        Q->>O: removeAll(expiredTokens)
         O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
     end
 
