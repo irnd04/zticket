@@ -719,7 +719,7 @@
     {
       "id": 30,
       "title": "Redis CPU Usage",
-      "description": "Redis 서버 CPU 사용률 (user + system)",
+      "description": "Redis 서버 CPU 사용률",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 94 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },

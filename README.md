@@ -697,7 +697,7 @@ Row 단위로 그룹핑되어 있으며, 각 Row를 클릭하면 접고 펼 수 
 
 | 패널 | 설명 |
 |------|------|
-| Redis CPU Usage | Redis 서버 CPU 사용률 (total = user + system). user는 명령 처리, system은 네트워크 I/O |
+| Redis CPU Usage | Redis 서버 CPU 사용률 (total = user + system) |
 | Redis Memory | Redis 메모리 사용량 vs maxmemory 한도 |
 | Redis Connected Clients | 연결된 클라이언트 수와 블로킹된 클라이언트 수 |
 | Redis Commands/s & Hit Rate | Redis 서버 초당 명령 처리량과 키 조회 적중률 |
