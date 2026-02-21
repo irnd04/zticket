@@ -1,14 +1,19 @@
 package kr.jemi.zticket.seat.domain;
 
+import jakarta.validation.constraints.NotNull;
+import kr.jemi.zticket.common.validation.SelfValidating;
+
 import java.util.List;
 import java.util.Map;
 
-public class Seats {
+public class Seats implements SelfValidating {
 
+    @NotNull
     private final Map<Integer, Seat> statuses;
 
     public Seats(Map<Integer, Seat> statuses) {
-        this.statuses = Map.copyOf(statuses);
+        this.statuses = statuses == null ? null : Map.copyOf(statuses);
+        validateSelf();
     }
 
     public Seat of(int seatNumber) {
@@ -21,9 +26,5 @@ public class Seats {
 
     public List<Integer> seatNumbers() {
         return statuses.keySet().stream().sorted().toList();
-    }
-
-    public int size() {
-        return statuses.size();
     }
 }

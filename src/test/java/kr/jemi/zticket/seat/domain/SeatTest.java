@@ -14,10 +14,26 @@ class SeatTest {
     class Validation {
 
         @Test
+        @DisplayName("status가 null이면 예외가 발생한다")
+        void null_status_throws() {
+            assertThatThrownBy(() -> new Seat(null, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
         @DisplayName("AVAILABLE 좌석은 owner가 null이어야 한다")
         void available_with_owner_throws() {
             assertThatThrownBy(() -> new Seat(SeatStatus.AVAILABLE, "token-1"))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("AVAILABLE 좌석은 owner가 null이면 정상 생성된다")
+        void available_without_owner_succeeds() {
+            Seat seat = new Seat(SeatStatus.AVAILABLE, null);
+
+            assertThat(seat.status()).isEqualTo(SeatStatus.AVAILABLE);
+            assertThat(seat.owner()).isNull();
         }
 
         @Test
