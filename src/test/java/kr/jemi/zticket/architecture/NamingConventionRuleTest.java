@@ -45,5 +45,6 @@ class NamingConventionRuleTest {
     static final ArchRule Scheduler는_infrastructure_in에_위치 =
         classes()
             .that().haveSimpleNameEndingWith("Scheduler")
+            .and().resideOutsideOfPackage("..common..")
             .should().resideInAPackage("..infrastructure.in..");
 }

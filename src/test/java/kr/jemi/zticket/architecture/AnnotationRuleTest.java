@@ -27,8 +27,9 @@ class AnnotationRuleTest {
             .should().resideInAPackage("..infrastructure.out..");
 
     @ArchTest
-    static final ArchRule RestController는_infrastructure_in에만 =
+    static final ArchRule Controller_어노테이션은_infrastructure_in에_위치 =
         classes()
-            .that().areAnnotatedWith("org.springframework.web.bind.annotation.RestController")
+            .that().areMetaAnnotatedWith("org.springframework.stereotype.Controller")
+            .and().resideOutsideOfPackage("..common..")
             .should().resideInAPackage("..infrastructure.in..");
 }

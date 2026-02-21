@@ -2,8 +2,7 @@ package kr.jemi.zticket.ticket.infrastructure.in.event;
 
 import kr.jemi.zticket.ticket.application.port.in.HandleTicketPaidUseCase;
 import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,8 +14,7 @@ public class TicketPaidEventListener {
         this.handleTicketPaidUseCase = handleTicketPaidUseCase;
     }
 
-    @Async
-    @EventListener
+    @ApplicationModuleListener
     public void handle(TicketPaidEvent event) {
         handleTicketPaidUseCase.handle(event.ticketId());
     }

@@ -1,7 +1,7 @@
 package kr.jemi.zticket.integration;
 
 import kr.jemi.zticket.queue.infrastructure.in.scheduler.AdmissionScheduler;
-import kr.jemi.zticket.ticket.infrastructure.in.scheduler.SyncScheduler;
+import kr.jemi.zticket.common.scheduler.EventResubmitScheduler;
 import kr.jemi.zticket.ticket.infrastructure.out.persistence.TicketJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
@@ -36,13 +37,16 @@ public abstract class IntegrationTestBase {
     AdmissionScheduler admissionScheduler;
 
     @MockitoBean
-    SyncScheduler syncScheduler;
+    EventResubmitScheduler eventResubmitScheduler;
 
     @Autowired
     protected StringRedisTemplate redisTemplate;
 
     @Autowired
     protected TicketJpaRepository ticketJpaRepository;
+
+    @Autowired
+    protected JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanUp() {
@@ -51,5 +55,6 @@ public abstract class IntegrationTestBase {
             return null;
         });
         ticketJpaRepository.deleteAll();
+        jdbcTemplate.execute("DELETE FROM event_publication");
     }
 }

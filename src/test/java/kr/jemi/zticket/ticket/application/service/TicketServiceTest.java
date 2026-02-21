@@ -3,22 +3,18 @@ package kr.jemi.zticket.ticket.application.service;
 import io.hypersistence.tsid.TSID;
 import kr.jemi.zticket.ticket.application.port.out.ActiveUserCheckPort;
 import kr.jemi.zticket.ticket.application.port.out.SeatHoldPort;
-import kr.jemi.zticket.ticket.application.port.out.TicketPort;
 import kr.jemi.zticket.common.exception.BusinessException;
 import kr.jemi.zticket.common.exception.ErrorCode;
 import kr.jemi.zticket.ticket.domain.Ticket;
-import kr.jemi.zticket.ticket.domain.TicketPaidEvent;
 import kr.jemi.zticket.ticket.domain.TicketStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -31,13 +27,10 @@ class TicketServiceTest {
     private SeatHoldPort seatHoldPort;
 
     @Mock
-    private TicketPort ticketPort;
-
-    @Mock
     private ActiveUserCheckPort activeUserCheckPort;
 
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private TicketWriter ticketWriter;
 
     private final TSID.Factory tsidFactory = TSID.Factory.newInstance256(0);
 
@@ -48,7 +41,7 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(
-                seatHoldPort, ticketPort, activeUserCheckPort, eventPublisher, tsidFactory, HOLD_TTL_SECONDS);
+                seatHoldPort, activeUserCheckPort, ticketWriter, tsidFactory, HOLD_TTL_SECONDS);
     }
 
     @Nested
@@ -63,7 +56,8 @@ class TicketServiceTest {
             int seatNumber = 7;
             given(activeUserCheckPort.isActive(token)).willReturn(true);
             given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
+            given(ticketWriter.insertAndPublish(any(Ticket.class)))
+                    .willAnswer(inv -> inv.getArgument(0));
 
             // when
             Ticket result = ticketService.purchase(token, seatNumber);
@@ -75,43 +69,24 @@ class TicketServiceTest {
         }
 
         @Test
-        @DisplayName("정상 구매 시 올바른 순서로 실행되고 이벤트가 발행된다")
-        void shouldExecuteInOrderAndPublishEvent() {
+        @DisplayName("정상 구매 시 올바른 순서로 실행된다: isActive → holdSeat → insertAndPublish")
+        void shouldExecuteInOrder() {
             // given
             String token = "active-token";
             int seatNumber = 7;
             given(activeUserCheckPort.isActive(token)).willReturn(true);
             given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
+            given(ticketWriter.insertAndPublish(any(Ticket.class)))
+                    .willAnswer(inv -> inv.getArgument(0));
 
             // when
             ticketService.purchase(token, seatNumber);
 
-            // then - 순서 검증: isActive → holdSeat → save(PAID) → 이벤트 발행
-            InOrder inOrder = inOrder(activeUserCheckPort, seatHoldPort, ticketPort, eventPublisher);
+            // then
+            InOrder inOrder = inOrder(activeUserCheckPort, seatHoldPort, ticketWriter);
             inOrder.verify(activeUserCheckPort).isActive(token);
             inOrder.verify(seatHoldPort).holdSeat(seatNumber, token, HOLD_TTL_SECONDS);
-            inOrder.verify(ticketPort).insert(any(Ticket.class));
-            inOrder.verify(eventPublisher).publishEvent(any(TicketPaidEvent.class));
-        }
-
-        @Test
-        @DisplayName("이벤트에 ticketUuid가 전달된다")
-        void shouldPublishEventWithTicketUuid() {
-            // given
-            String token = "active-token";
-            int seatNumber = 7;
-            given(activeUserCheckPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any(Ticket.class))).willAnswer(inv -> inv.getArgument(0));
-
-            // when
-            Ticket result = ticketService.purchase(token, seatNumber);
-
-            // then
-            ArgumentCaptor<TicketPaidEvent> captor = ArgumentCaptor.forClass(TicketPaidEvent.class);
-            then(eventPublisher).should().publishEvent(captor.capture());
-            assertThat(captor.getValue().ticketId()).isEqualTo(result.getId());
+            inOrder.verify(ticketWriter).insertAndPublish(any(Ticket.class));
         }
     }
 
@@ -132,7 +107,7 @@ class TicketServiceTest {
                     .isEqualTo(ErrorCode.NOT_ACTIVE_USER);
 
             then(seatHoldPort).shouldHaveNoInteractions();
-            then(ticketPort).shouldHaveNoInteractions();
+            then(ticketWriter).shouldHaveNoInteractions();
         }
     }
 
@@ -154,7 +129,7 @@ class TicketServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(ErrorCode.SEAT_ALREADY_HELD);
 
-            then(ticketPort).shouldHaveNoInteractions();
+            then(ticketWriter).shouldHaveNoInteractions();
         }
 
         @Test
@@ -164,7 +139,8 @@ class TicketServiceTest {
             String token = "active-token";
             given(activeUserCheckPort.isActive(token)).willReturn(true);
             given(seatHoldPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any())).willAnswer(inv -> inv.getArgument(0));
+            given(ticketWriter.insertAndPublish(any()))
+                    .willAnswer(inv -> inv.getArgument(0));
 
             // when
             ticketService.purchase(token, 7);
@@ -186,7 +162,7 @@ class TicketServiceTest {
             int seatNumber = 7;
             given(activeUserCheckPort.isActive(token)).willReturn(true);
             given(seatHoldPort.holdSeat(seatNumber, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any(Ticket.class)))
+            given(ticketWriter.insertAndPublish(any(Ticket.class)))
                     .willThrow(new RuntimeException("DB connection failed"));
 
             // when & then
@@ -196,24 +172,6 @@ class TicketServiceTest {
                     .isEqualTo(ErrorCode.INTERNAL_ERROR);
 
             then(seatHoldPort).should().releaseSeat(seatNumber, token);
-        }
-
-        @Test
-        @DisplayName("DB 저장 실패 시 이벤트가 발행되지 않는다")
-        void shouldNotPublishEventOnDbFailure() {
-            // given
-            String token = "active-token";
-            given(activeUserCheckPort.isActive(token)).willReturn(true);
-            given(seatHoldPort.holdSeat(7, token, HOLD_TTL_SECONDS)).willReturn(true);
-            given(ticketPort.insert(any(Ticket.class)))
-                    .willThrow(new RuntimeException("DB error"));
-
-            // when
-            assertThatThrownBy(() -> ticketService.purchase(token, 7))
-                    .isInstanceOf(BusinessException.class);
-
-            // then
-            then(eventPublisher).shouldHaveNoInteractions();
         }
     }
 
