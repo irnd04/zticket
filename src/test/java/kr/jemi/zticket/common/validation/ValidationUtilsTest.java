@@ -24,22 +24,22 @@ class ValidationUtilsTest {
         }
 
         @Test
-        @DisplayName("@NotNull 필드가 null이면 IllegalArgumentException이 발생한다")
+        @DisplayName("@NotNull 필드가 null이면 IllegalStateException이 발생한다")
         void shouldThrowWhenNotNullFieldIsNull() {
             var target = new SampleObject(null, 1);
 
             assertThatThrownBy(() -> ValidationUtils.validate(target))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("name");
         }
 
         @Test
-        @DisplayName("@Min 제약을 위반하면 IllegalArgumentException이 발생한다")
+        @DisplayName("@Min 제약을 위반하면 IllegalStateException이 발생한다")
         void shouldThrowWhenMinViolated() {
             var target = new SampleObject("hello", 0);
 
             assertThatThrownBy(() -> ValidationUtils.validate(target))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("value");
         }
 
@@ -49,7 +49,7 @@ class ValidationUtilsTest {
             var target = new SampleObject(null, 0);
 
             assertThatThrownBy(() -> ValidationUtils.validate(target))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("name")
                     .hasMessageContaining("value");
         }
@@ -60,7 +60,7 @@ class ValidationUtilsTest {
             var target = new SampleObject(null, 1);
 
             assertThatThrownBy(() -> ValidationUtils.validate(target))
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("SampleObject");
         }
     }
@@ -79,12 +79,12 @@ class ValidationUtilsTest {
         }
 
         @Test
-        @DisplayName("제약 위반 시 validateSelf()가 IllegalArgumentException을 던진다")
+        @DisplayName("제약 위반 시 validateSelf()가 IllegalStateException을 던진다")
         void shouldThrowOnViolation() {
             var target = new SelfValidatingObject(null, 1);
 
             assertThatThrownBy(target::validateSelf)
-                    .isInstanceOf(IllegalArgumentException.class)
+                    .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("name");
         }
     }

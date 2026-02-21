@@ -19,7 +19,7 @@ public final class ValidationUtils {
             String message = violations.stream()
                     .map(v -> v.getPropertyPath() + ": " + v.getMessage())
                     .collect(Collectors.joining(", "));
-            throw new IllegalArgumentException(
+            throw new IllegalStateException(
                     target.getClass().getSimpleName() + " 검증 실패: " + message);
         }
     }

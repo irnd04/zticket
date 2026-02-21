@@ -19,7 +19,7 @@ class SeatsTest {
         @DisplayName("statuses가 null이면 예외가 발생한다")
         void null_statuses_throws() {
             assertThatThrownBy(() -> new Seats(null))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

@@ -80,21 +80,21 @@ class TicketTest {
         @DisplayName("좌석 번호가 0이면 생성에 실패한다")
         void shouldRejectZeroSeatNumber() {
             assertThatThrownBy(() -> Ticket.create(1, "token-1", 0))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
         @DisplayName("좌석 번호가 음수이면 생성에 실패한다")
         void shouldRejectNegativeSeatNumber() {
             assertThatThrownBy(() -> Ticket.create(1, "token-1", -1))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
         @DisplayName("queueToken이 null이면 생성에 실패한다")
         void shouldRejectNullQueueToken() {
             assertThatThrownBy(() -> Ticket.create(1, null, 7))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
@@ -102,7 +102,7 @@ class TicketTest {
         void shouldRejectNullStatus() {
             assertThatThrownBy(() -> new Ticket(1L, 7, null, "token-1",
                     LocalDateTime.now(), LocalDateTime.now()))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

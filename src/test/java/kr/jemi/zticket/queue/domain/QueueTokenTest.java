@@ -16,30 +16,30 @@ class QueueTokenTest {
         @DisplayName("token이 null이면 예외가 발생한다")
         void null_token_throws() {
             assertThatThrownBy(() -> QueueToken.waiting(null, 1))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
         @DisplayName("token이 빈 문자열이면 예외가 발생한다")
         void blank_token_throws() {
             assertThatThrownBy(() -> QueueToken.waiting("", 1))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
             assertThatThrownBy(() -> QueueToken.waiting("   ", 1))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
         @DisplayName("rank가 음수이면 예외가 발생한다")
         void negative_rank_throws() {
             assertThatThrownBy(() -> QueueToken.waiting("token-1", -1))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
 
         @Test
         @DisplayName("status가 null이면 예외가 발생한다")
         void null_status_throws() {
             assertThatThrownBy(() -> new QueueToken("token-1", 0, null))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 
