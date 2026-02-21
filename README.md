@@ -129,7 +129,7 @@ sequenceDiagram
 
     AS->>R: 1. waiting_queue_heartbeat를 이용해서 잠수 유저 제거
     AS->>R: 2. 입장 가능 인원 계산
-    AS->>R: 3. waiting_queue FIFO 순서로 후보 조회
+    AS->>R: 3. waiting_queue 대기열에서 선착순으로 입장 대상 조회
     AS->>R: 4. 조회한 유저 토큰으로 active_user 키 생성 + TTL 300초 = 입장 (티켓 구매 권한 획득) 
     AS->>R: 5. waiting_queue에서 제거 (대기열에서 제거)
 ```
@@ -267,10 +267,10 @@ end
 
 대기열은 Sorted Set 2개로 관리합니다.
 
-```
-waiting_queue           (score = 진입 시각)      → FIFO 순서 유지, rank 조회용
-waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 제거용
-```
+| 키 | score | 용도                     |
+|---|---|------------------------|
+| `waiting_queue` | 진입 시각 | 대기열, rank 조회 |
+| `waiting_queue_heartbeat` | 마지막 폴링 시각 | 잠수 감지 및 제거             |
 
 **동작 흐름**:
 
@@ -282,17 +282,17 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 입장 (`admitBatch` 3단계) | ZRANGE(peek) + ZREM | ZREM |
 
 **왜 Sorted Set 2개?**
-- `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀝니다.
-- 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했습니다.
-- 개별 키(`queue_hb:{token}`) N개 대신 Sorted Set 1개로 관리하여 키스페이스를 오염시키지 않습니다.
+- 대기열(`waiting_queue`)의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀝니다.
+- 입장 순서(rank)와 생존 여부(`waiting_queue_heartbeat`)는 별개 관심사이므로 분리했습니다.
+- 개별 키로 N개의 키로 관리하는 대신 Sorted Set 1개로 관리하여 키스페이스를 오염시키지 않습니다.
 
 #### 잠수 유저 제거 + 입장 제어
 
-`AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리합니다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `maxActiveUsers - currentActive` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한합니다. 또한 잔여 좌석에서 active 유저 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 합니다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)합니다.
+`AdmissionScheduler`(5초 주기)에서 잠수 유저 제거와 입장을 한 번에 처리합니다. 먼저 잠수 유저를 제거한 뒤, active 유저 수를 세고 `최대 입장 인원 수(maxActiveUsers) - 현재 입장한 인원 수(active_user)` 만큼만 입장시키되, `batchSize`(100명)를 상한으로 제한합니다. 또한 잔여 좌석에서 현재 입장한 인원 수를 보수적으로 차감하여, 좌석보다 많은 유저가 입장하지 않도록 합니다. 대기열 진입 시점에서도 잔여 좌석이 0이면 진입 자체를 거부(SOLD_OUT)합니다.
 
-잠수 유저를 먼저 제거하므로, 이후 `peek`은 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 됩니다.
+먼저 잠수 유저를 먼저 제거하므로 이 후 조회는 잠수 유저를 고려하지 않고 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 됩니다.
 
-**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{token}` 키의 TTL(300초)로 자연 회수됩니다. 5분 뒤 자동 만료되어 슬롯이 반환됩니다.
+**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{token}` 키의 TTL(300초)로 자연 회수됩니다.
 
 **active 유저 카운트 — SCAN vs Sorted Set**:
 
@@ -301,12 +301,12 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 시간복잡도 | `SCAN` O(전체 키 수), 근사값 | `ZCARD` O(1), 정확값 |
 | TTL 만료 | 키 단위 TTL 자동 만료 | 멤버 단위 TTL 미지원, 만료 로직 직접 구현 필요 |
 
-현재 active 유저는 최대 `maxActiveUsers`(1,000명) 수준으로 키 개수가 적고, 입장 제어에 정확한 수가 필요하지 않으므로 개별 키 + `SCAN`을 선택했습니다. 다소 많거나 적게 입장시켜도 다음 주기에 보정됩니다.
+현재 active 유저는 최대 입장 인원 수(1,000명) 수준으로 키 개수가 적고, 입장 제어에 정확한 수가 필요하지 않으므로 개별 키 + `SCAN`을 선택했습니다. 키 단위 TTL로 만료를 Redis에 위임할 수 있어 관리가 단순하고, 다소 많거나 적게 입장시켜도 다음 주기에 보정됩니다.
 
 **4단계 분리**:
 
 - **잠수 제거**: `waiting_heartbeat`에서 60초 이상 미갱신 유저를 대기열(`waiting_queue`)에서 제거합니다.
-- **후보 조회**: 대기열에서 FIFO 순서로 조회만 합니다.
+- **입장 대상 유저 조회**: 대기열에서 선착순으로 입장 대상 조회
 - **입장 처리**: 조회한 유저의 토큰을 `active_user:{token}` 키 형태로 Redis 파이프라이닝으로 일괄 생성합니다. 멱등 연산이라 재실행해도 TTL만 갱신됩니다.
 - **대기열 제거**: 입장 처리 완료 후 대기열에서 제거합니다. "대기열에서는 빠졌는데 입장은 안 된" 상태가 발생하지 않습니다.
 
@@ -457,11 +457,6 @@ public Ticket insert(Ticket ticket) {
 ### 5. 1티켓-1좌석: 단일 좌석 vs 다중 좌석 선택
 
 #### 선택: 1티켓 = 1좌석 (`seatNumber: int`)
-
-```java
-// Ticket.java
-private final int seatNumber;  // List<Integer> seatNumbers가 아님
-```
 
 **채택 이유**:
 - **본질에 집중**: 이 프로젝트의 핵심은 대용량 동시 접속 환경에서의 선착순 티켓 구매 시스템입니다. 다중 좌석 선택은 부가 기능이지 핵심 도메인이 아닙니다. 대기열 관리, Redis-DB 동기화, 중복 판매 방지 등 핵심 문제에 집중하기 위해 의도적으로 제외했습니다.
