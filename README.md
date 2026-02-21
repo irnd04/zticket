@@ -541,36 +541,32 @@ private final int seatNumber;  // List<Integer> seatNumbers가 아님
 
 ---
 
-### 6. 영속화 패턴: 도메인 객체 `save(ticket)` vs 직접 `updateStatus(uuid, status)`
+### 6. 영속화 패턴: 도메인 객체 `update(ticket)` vs 직접 `updateStatus(id, status)`
 
-#### 선택: 도메인 엔티티에서 상태 전이 후 save
+#### 선택: 도메인 엔티티에서 상태 전이 후 update
 
 ```java
-// TicketService.java - 상태 전이는 도메인 엔티티가 담당
+// TicketPaidHandler.java - 상태 전이는 도메인 엔티티가 담당
 ticket.sync();                       // Ticket 내부에서 PAID→SYNCED 전환 + 유효성 검증
-ticketPort.save(ticket);  // 변경된 도메인 객체를 그대로 저장
+ticketPort.update(ticket);           // 변경된 도메인 객체를 그대로 저장
 ```
 
 ```java
-// TicketJpaAdapter.java - Upsert 패턴
-public Ticket save(Ticket ticket) {
-    TicketJpaEntity entity = ticket.getId() != null
-            ? repository.findById(ticket.getId())
-                    .map(existing -> { existing.update(ticket); return existing; })
-                    .orElseThrow(() -> new IllegalStateException(
-                            "티켓을 찾을 수 없습니다: id=" + ticket.getId()))
-            : TicketJpaEntity.fromDomain(ticket);
-    return repository.save(entity).toDomain();
+// TicketJpaAdapter.java
+public void update(Ticket ticket) {
+    TicketJpaEntity entity = repository.findById(ticket.getId())
+        .orElseThrow(() ->
+            new IllegalStateException("티켓을 찾을 수 없습니다: id=" + ticket.getId()));
+    entity.update(ticket);
 }
 ```
 
 **채택 이유**:
-- **도메인 로직 캡슐화**: 상태 전이 규칙(PAID→SYNCED만 허용)이 `Ticket.sync()` 메서드 안에 있습니다. `updateStatus(uuid, SYNCED)`는 어디서든 아무 상태로나 변경할 수 있어 도메인 불변식이 깨질 수 있습니다.
-- **Port 인터페이스 단순화**: `TicketPort`에 `save`, `findByUuid`, `findByStatus` 3개 메서드만 있습니다. `updateStatus`가 없으므로 포트가 더 범용적입니다.
-- **Upsert 패턴**: 같은 `save()` 메서드로 INSERT(첫 저장)와 UPDATE(상태 변경)를 모두 처리합니다.
+- **도메인 로직 캡슐화**: 상태 전이 규칙(PAID→SYNCED만 허용)이 `Ticket.sync()` 메서드 안에 있습니다. `updateStatus(id, SYNCED)`는 어디서든 아무 상태로나 변경할 수 있어 도메인 불변식이 깨질 수 있습니다.
+- **Port 인터페이스 단순화**: `TicketPort`에 `insert`, `update`, `findById`, `findByStatus` 4개 메서드만 있습니다. `updateStatus`가 없으므로 포트가 더 범용적입니다.
 
 **트레이드오프**:
-- **Upsert의 추가 SELECT**: 매 save마다 `findById`를 먼저 실행합니다. 직접 `UPDATE ... WHERE id = ?`보다 한 번의 SELECT가 추가됩니다. 하지만 PK 조회이므로 성능 차이는 미미합니다.
+- **update의 추가 SELECT**: `update` 시 `findById`로 기존 엔티티를 먼저 조회합니다. 직접 `UPDATE ... WHERE id = ?`보다 한 번의 SELECT가 추가되지만, PK 조회이므로 성능 차이는 미미합니다.
 - **도메인 엔티티 외부 수정 불가**: `ticket.setStatus()`가 없으므로 테스트에서 임의 상태를 주입하려면 생성자를 사용해야 합니다.
 
 ---
@@ -906,7 +902,7 @@ kr.jemi.zticket
 │           ├── persistence/
 │           │   ├── TicketJpaEntity.java         seatNumber UNIQUE
 │           │   ├── TicketJpaRepository.java        Spring Data JPA
-│           │   └── TicketJpaAdapter.java        Upsert 패턴 (findById 기반)
+│           │   └── TicketJpaAdapter.java        insert/update 영속화
 │           ├── queue/
 │           │   └── ActiveUserCheckAdapter.java  QueueFacade → ActiveUserCheckPort 변환
 │           └── seat/
