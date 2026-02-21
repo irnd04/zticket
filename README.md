@@ -197,8 +197,8 @@ sequenceDiagram
 sequenceDiagram
     participant C as 클라이언트
     participant T as TicketService
-    participant E as EventPublisher
-    participant L as TicketPaidEventListener<br/>(@Async)
+    participant W as TicketWriter<br/>(@Transactional)
+    participant L as TicketPaidEventListener<br/>(@ApplicationModuleListener)
     participant R as Redis
     participant DB as MySQL
 
@@ -218,7 +218,10 @@ sequenceDiagram
     end
     R-->>T: true
 
-    T->>DB: 3. INSERT ticket (status=PAID)
+    T->>W: 3. insertAndPublish(ticket)
+    Note over W,DB: 같은 트랜잭션 내에서<br/>INSERT ticket + INSERT event_publication
+    W->>DB: INSERT ticket (status=PAID)
+    W->>DB: INSERT event_publication (Outbox)
     alt DB 저장 실패
         T->>R: Lua: held:{token}일 때만 DEL seat:N (롤백)
         T-->>C: INTERNAL_ERROR
@@ -226,36 +229,34 @@ sequenceDiagram
 
     T-->>C: PAID 티켓 반환 (구매 확정)
 
-    Note over T: DB PAID = Source of Truth<br/>이후 Redis 동기화는 비동기 처리
+    Note over W: 트랜잭션 커밋 후 비동기 이벤트 전달
 
-    T->>E: publishEvent(TicketPaidEvent)
-    Note over T: 즉시 반환 (비동기)
-
-    E->>L: handle(event)
-    L->>DB: findByUuid(ticketUuid)
+    DB-->>L: TicketPaidEvent (from event_publication)
+    L->>DB: findById(ticketId)
     DB-->>L: Ticket (PAID)
 
     L->>R: SET seat:N "paid:{token}" (held → paid 전환)
     L->>DB: UPDATE ticket SET status=SYNCED
     L->>R: DEL active_user:{token}
+    L->>DB: event_publication 완료 처리
 ```
 
-### 5. 동기화 배치 복구: PAID 티켓 재동기화
+### 5. 이벤트 복구: Outbox + 재발행 스케줄러
 
-5단계 비동기 처리가 실패하면 DB에 PAID 상태로 남습니다. 동기화 배치(`SyncScheduler`, 매 1분)가 이를 감지하여 동일한 `TicketPaidEvent`를 발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
+비동기 리스너 처리가 실패하면 `event_publication` 테이블에 미완료 레코드로 남습니다. `EventResubmitScheduler`(매 1분)가 Spring Modulith의 `IncompleteEventPublications`를 통해 5분 이상 미완료된 이벤트를 자동 재발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
 ```mermaid
 flowchart TD
-    A[SyncScheduler 매 1분] --> B[DB에서 status=PAID 티켓 조회]
-    B --> C{PAID 티켓 있음?}
+    A[EventResubmitScheduler 매 1분] --> B[event_publication에서<br/>5분 이상 미완료 이벤트 조회]
+    B --> C{미완료 이벤트 있음?}
     C -- 없음 --> END[종료]
-    C -- 있음 --> D["각 PAID 티켓에 대해<br/>TicketPaidEvent 발행"]
+    C -- 있음 --> D["미완료 이벤트 재발행<br/>(IncompleteEventPublications)"]
 
     style A fill:#f9f,stroke:#333
     style END fill:#9f9,stroke:#333
 ```
 
-**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 저장된 티켓은 구매 확정입니다. 동기화 배치는 DB의 PAID 레코드를 기준으로 Redis 상태를 복원합니다.
+**DB PAID가 Source of Truth**: Redis는 장애나 TTL 만료로 상태가 유실될 수 있지만, DB에 저장된 티켓은 구매 확정입니다. Outbox 패턴이 이벤트 발행을 보장하고, 재발행 스케줄러가 실패한 이벤트를 복구합니다.
 
 ---
 
@@ -278,7 +279,7 @@ flowchart TD
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
 - Redis에 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
-- 동기화 배치가 1분마다 PAID 티켓을 조회하여 `SET seat:{n} paid:{token}`으로 Redis를 복원합니다.
+- Outbox(`event_publication`)에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 Redis를 복원합니다.
 - **중복 판매 불가능**: 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
 
 #### Case 2-2: DB INSERT 성공했으나 타임아웃으로 실패 응답
@@ -286,14 +287,14 @@ flowchart TD
 - **시나리오**: Redis held 성공 → DB INSERT 전송 → DB는 커밋 성공 → 그러나 네트워크 타임아웃으로 애플리케이션은 예외 수신
 - **사용자 응답**: INTERNAL_ERROR (구매 실패로 인식)
 - **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + DB `PAID` 레코드 존재
-- **복구**: 동기화 배치(1분 주기)가 DB에서 `PAID` 티켓을 발견하고, `SET seat:{n} paid:{token}`으로 Redis를 복원한 뒤 `SYNCED`로 갱신합니다.
+- **복구**: Outbox에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 `SET seat:{n} paid:{token}`으로 Redis를 복원한 뒤 `SYNCED`로 갱신합니다.
 - **중복 판매 불가능**: Redis 키가 잠시 삭제되어 다른 사용자가 hold할 수 있지만, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다. 사용자에게는 실패로 응답되었지만 실제로는 구매가 완료된 상태이므로, 티켓 조회(마이페이지 등)에서 확인할 수 있습니다.
 
 #### Case 3: Redis paid 성공 → DB SYNCED 갱신 실패
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
 - **상태**: Redis `paid:{token}` (영구) + DB `PAID`
-- 동기화 배치가 paySeat을 재실행하지만, 이미 paid이므로 동일한 값을 덮어쓸 뿐입니다(멱등). 이후 DB를 SYNCED로 갱신합니다.
+- 재발행 스케줄러가 미완료 이벤트를 재발행하여 paySeat을 재실행하지만, 이미 paid이므로 동일한 값을 덮어쓸 뿐입니다(멱등). 이후 DB를 SYNCED로 갱신합니다.
 - **중복 판매 불가능**: Redis가 이미 paid로 영구 점유 중이라 다른 사용자의 hold가 불가능합니다.
 
 #### Case 4: DB SYNCED 성공 → active 유저 제거 실패
@@ -470,17 +471,19 @@ public Ticket save(Ticket ticket) {
 
 ---
 
-### 2. PAID 동기화: status 인덱스 폴링 vs Outbox 패턴
+### 2. 이벤트 전달 보장: Spring Modulith Outbox 패턴
 
-#### 선택: `WHERE status = 'PAID'` 폴링 + status 인덱스
+#### 선택: Spring Modulith Event Publication Registry (Outbox)
 
-구매 후 Redis 동기화가 실패하면 DB에 PAID 상태로 남습니다. 스케줄러(1분 주기)가 `status = 'PAID'` 인 티켓을 조회하여 Redis를 복원합니다. status 컬럼에 인덱스를 걸어 조회 성능을 확보합니다.
+`TicketWriter`가 `@Transactional` 내에서 티켓 INSERT와 이벤트 발행을 수행합니다. Spring Modulith는 이벤트를 `event_publication` 테이블에 같은 트랜잭션으로 저장하여, DB 커밋이 성공하면 이벤트 전달이 보장됩니다(at-least-once). 리스너 처리가 완료되면 해당 레코드가 완료 처리됩니다.
 
-**Outbox 패턴을 사용하지 않는 이유**:
+**`TicketWriter` 빈 분리 이유**:
 
-Outbox 패턴은 비즈니스 데이터와 이벤트(outbox)를 같은 트랜잭션에 저장하여 발행을 보장하고, 처리 후 삭제하는 방식입니다. 이 프로젝트에서는 채택하지 않았습니다.
+`TicketService.purchase()`는 Redis 호출(트랜잭션 밖)과 DB INSERT+이벤트 발행(트랜잭션 안)을 모두 수행합니다. `@Transactional`을 `purchase()` 전체에 걸면 Redis 호출까지 트랜잭션에 포함되어 커넥션 점유 시간이 길어집니다. `TicketWriter`로 DB+이벤트 부분만 별도 `@Transactional` 빈으로 분리하여, Spring AOP 프록시의 self-invocation 문제를 회피하면서 트랜잭션 범위를 최소화합니다.
 
-입장 스케줄러가 동시 active 유저 수를 제한하므로, 구매가 동시에 폭주하지 않습니다. PAID 상태는 비동기 동기화가 완료되기까지의 짧은 순간에만 존재하고, 정상 흐름에서는 즉시 SYNCED로 전환됩니다. ticket 테이블의 크기도 총 좌석 수(1,000석)로 제한되므로, `WHERE status = 'PAID'` 조회에 성능 문제가 없습니다.
+**복구 메커니즘**:
+
+미완료 이벤트는 `EventResubmitScheduler`(1분 주기)가 `IncompleteEventPublications.resubmitIncompletePublicationsOlderThan(5분)`을 호출하여 자동 재발행합니다. 리스너(`@ApplicationModuleListener`)는 멱등하므로 재실행에 안전합니다.
 
 ---
 
@@ -876,16 +879,15 @@ kr.jemi.zticket
 │   │   ├── port/
 │   │   │   ├── in/
 │   │   │   │   ├── PurchaseTicketUseCase.java  purchase(queueToken, seatNumber)
-│   │   │   │   ├── HandleTicketPaidUseCase.java 비동기 후처리
-│   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
+│   │   │   │   └── HandleTicketPaidUseCase.java 비동기 후처리
 │   │   │   └── out/
 │   │   │       ├── TicketPort.java             insert/update/findById/findByStatus
 │   │   │       ├── ActiveUserCheckPort.java    활성 사용자 검증 (→ queue 모듈)
 │   │   │       └── SeatHoldPort.java           좌석 선점/결제/해제 (→ seat 모듈)
 │   │   └── service/
-│   │       ├── TicketService.java              동기 3단계 구매 + 이벤트 발행
-│   │       ├── TicketPaidHandler.java          비동기 후처리 (paid 전환, SYNCED, deactivate)
-│   │       └── TicketSyncService.java          PAID 티켓 이벤트 재발행 (배치 복구)
+│   │       ├── TicketService.java              동기 3단계 구매 (Redis → TicketWriter)
+│   │       ├── TicketWriter.java               @Transactional INSERT + 이벤트 발행
+│   │       └── TicketPaidHandler.java          비동기 후처리 (paid 전환, SYNCED, deactivate)
 │   └── infrastructure/
 │       ├── in/
 │       │   ├── web/
@@ -893,10 +895,8 @@ kr.jemi.zticket
 │       │   │   └── dto/
 │       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
 │       │   │       └── PurchaseResponse.java   구매 결과 (ticketId, seatNumber)
-│       │   ├── scheduler/
-│       │   │   └── SyncScheduler.java          1분 PAID 동기화
 │       │   └── event/
-│       │       └── TicketPaidEventListener.java @Async @EventListener 어댑터
+│       │       └── TicketPaidEventListener.java @ApplicationModuleListener 어댑터
 │       └── out/
 │           ├── persistence/
 │           │   ├── TicketJpaEntity.java         seatNumber UNIQUE
@@ -911,6 +911,8 @@ kr.jemi.zticket
 │   ├── package-info.java
 │   ├── web/
 │   │   └── PageController.java                 Thymeleaf 뷰 (여러 도메인에 걸침)
+│   ├── scheduler/
+│   │   └── EventResubmitScheduler.java         미완료 이벤트 재발행 (1분 주기, 전체 모듈 대상)
 │   ├── exception/
 │   │   ├── ErrorCode.java                         에러 코드 enum
 │   │   ├── BusinessException.java                 비즈니스 예외
