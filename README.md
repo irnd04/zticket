@@ -48,8 +48,9 @@ Java 25 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기�
 docker compose up -d
 
 # 2. 접속
-open http://localhost:8080   # ZTicket
-open http://localhost:3000   # Grafana (admin / admin)
+open http://localhost:8080            # ZTicket
+open http://localhost:8080/swagger-ui # Swagger UI
+open http://localhost:3000            # Grafana (admin / admin)
 ```
 ---
 
@@ -704,14 +705,12 @@ Row 단위로 그룹핑되어 있으며, 각 Row를 클릭하면 접고 펼 수 
 
 ### Actuator 엔드포인트
 
+별도 관리 포트(`18080`)에서만 노출됩니다.
+
 | Path | 설명 |
 |------|------|
-| `/actuator/health` | 앱·DB·Redis 상태 확인 |
-| `/actuator/prometheus` | Prometheus 스크래핑용 메트릭 |
-| `/actuator/metrics` | 등록된 메트릭 목록 조회 |
-| `/actuator/env` | 환경 변수 및 설정 프로퍼티 조회 |
-| `/actuator/conditions` | 자동 구성 조건 평가 결과 |
-| `/actuator/beans` | 등록된 Spring Bean 목록 |
+| `:18080/actuator/health` | 앱·DB·Redis 상태 확인 |
+| `:18080/actuator/prometheus` | Prometheus 스크래핑용 메트릭 |
 
 ---
 

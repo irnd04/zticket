@@ -10,14 +10,12 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
-@ActiveProfiles("test")
 public abstract class IntegrationTestBase {
 
     @ServiceConnection

@@ -11,6 +11,16 @@ spring:
         format_sql: true
     show-sql: false
 
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+management:
+  server:
+    port: -1
+
 zticket:
   tsid:
     node-bits: 8
@@ -18,6 +28,7 @@ zticket:
     cron: "-"
     active-ttl-seconds: 3
     max-active-users: 10
+    batch-size: 100
     queue-ttl-seconds: 5
   seat:
     total-count: 50
