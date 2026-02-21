@@ -21,7 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class TicketPaidEventListenerTest {
+class TicketPaidHandlerTest {
 
     @Mock
     private SeatHoldPort seatHoldPort;
