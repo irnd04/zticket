@@ -228,10 +228,23 @@ sequenceDiagram
     end
 
     T-->>C: PAID 티켓 반환 (구매 확정)
+```
 
-    Note over W: 트랜잭션 커밋 후 비동기 이벤트 전달
+### 5. 비동기 Redis 동기화: Outbox 패턴 + 재발행 스케줄러
 
-    DB-->>L: TicketPaidEvent (from event_publication)
+구매 확정(DB PAID) 후 Redis 상태 동기화는 비동기로 처리됩니다. Spring Modulith의 Outbox 패턴이 이벤트 전달을 보장하고, 실패 시 재발행 스케줄러가 복구합니다.
+
+**정상 흐름**: 트랜잭션 커밋 시 `ticket`과 `event_publication`이 함께 저장됩니다. 커밋 후 `@ApplicationModuleListener`가 비동기로 이벤트를 수신하여 Redis 동기화를 수행하고, 완료되면 `event_publication` 레코드가 완료 처리됩니다.
+
+```mermaid
+sequenceDiagram
+    participant L as TicketPaidEventListener<br/>(@ApplicationModuleListener)
+    participant R as Redis
+    participant DB as MySQL
+
+    Note over DB: 트랜잭션 커밋 → event_publication에서 이벤트 전달
+
+    DB-->>L: TicketPaidEvent
     L->>DB: findById(ticketId)
     DB-->>L: Ticket (PAID)
 
@@ -241,9 +254,7 @@ sequenceDiagram
     L->>DB: event_publication 완료 처리
 ```
 
-### 5. 이벤트 복구: Outbox + 재발행 스케줄러
-
-비동기 리스너 처리가 실패하면 `event_publication` 테이블에 미완료 레코드로 남습니다. `EventResubmitScheduler`(매 1분)가 Spring Modulith의 `IncompleteEventPublications`를 통해 5분 이상 미완료된 이벤트를 자동 재발행합니다. 리스너의 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
+**실패 복구**: 리스너 처리가 실패하면 `event_publication`에 미완료 레코드로 남습니다. `EventResubmitScheduler`(매 1분)가 `IncompleteEventPublications`를 통해 5분 이상 미완료된 이벤트를 자동 재발행합니다. 리스너 로직은 멱등하므로 몇 번을 재실행해도 동일한 결과를 보장합니다.
 
 ```mermaid
 flowchart TD
@@ -989,14 +1000,13 @@ zticket:
   seat:
     total-count: 1000       # 총 좌석 수
     hold-ttl-seconds: 300   # 좌석 선점 유지 시간 (5분)
-  sync:
-    cron: "0 * * * * *"     # 동기화 워커 실행 주기 (1분)
+  event-resubmit:
+    cron: "0 * * * * *"     # 이벤트 재발행 스케줄러 실행 주기 (1분)
     lock-at-most-for: PT50S # ShedLock 최대 락 보유 (50초)
     lock-at-least-for: PT50S # ShedLock 최소 락 보유 (50초)
 ```
 
 **핵심 제약**:
 - `active-ttl-seconds(300초)` >= `hold-ttl-seconds(300초)`: active 세션이 좌석 선점보다 먼저 만료되면 구매를 못 하는데 좌석만 잡혀있는 상태가 됩니다. hold가 먼저 만료되면 구매 중 좌석이 풀리므로, active TTL은 hold TTL과 같거나 커야 합니다.
-- `sync.cron(1분)` < `hold-ttl-seconds(300초)`: 동기화 워커가 TTL 만료 전에 실행되어야 합니다. 단, DB `seatNumber UNIQUE` 제약이 최종 방어선으로 중복 판매를 차단합니다.
 
 

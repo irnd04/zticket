@@ -77,7 +77,7 @@ zticket:
   seat:
     total-count: 1000
     hold-ttl-seconds: 300
-  sync:
+  event-resubmit:
     cron: "0 * * * * *"
     lock-at-most-for: PT50S
     lock-at-least-for: PT50S

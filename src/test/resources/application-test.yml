@@ -22,5 +22,5 @@ zticket:
   seat:
     total-count: 50
     hold-ttl-seconds: 3
-  sync:
+  event-resubmit:
     cron: "-"

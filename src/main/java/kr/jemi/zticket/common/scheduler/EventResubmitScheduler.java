@@ -20,10 +20,10 @@ public class EventResubmitScheduler {
         this.incompleteEventPublications = incompleteEventPublications;
     }
 
-    @Scheduled(cron = "${zticket.sync.cron}")
+    @Scheduled(cron = "${zticket.event-resubmit.cron}")
     @SchedulerLock(name = "resubmitIncompleteEvents",
-            lockAtMostFor = "${zticket.sync.lock-at-most-for}",
-            lockAtLeastFor = "${zticket.sync.lock-at-least-for}")
+            lockAtMostFor = "${zticket.event-resubmit.lock-at-most-for}",
+            lockAtLeastFor = "${zticket.event-resubmit.lock-at-least-for}")
     public void resubmitIncompleteEvents() {
         try {
             incompleteEventPublications.resubmitIncompletePublicationsOlderThan(Duration.ofMinutes(5));
