@@ -84,12 +84,12 @@ sequenceDiagram
     participant R as Redis
 
     U->>Q: POST /api/queues/tokens
-    Q->>O: enqueue(uuid)
+    Q->>O: enqueue(token)
     O->>R: ZADD waiting_queue (score=진입시각)
     O->>R: ZADD waiting_queue_heartbeat (score=진입시각)
     R-->>O: rank
     O-->>Q: rank
-    Q-->>U: { uuid, rank }
+    Q-->>U: { token, rank }
 ```
 
 - `waiting_queue`(순서 관리)와 `waiting_queue_heartbeat`(생존 감지)에 동시 등록
@@ -110,17 +110,17 @@ sequenceDiagram
     participant R as Redis
 
     loop 5초 폴링
-        U->>Q: GET /api/queues/tokens/{uuid}
-        alt active_user:{uuid} 존재
+        U->>Q: GET /api/queues/tokens/{token}
+        alt active_user:{token} 존재
             Q-->>U: ACTIVE → 좌석 선택 페이지로 이동
         else 잔여 좌석 = 0
             Q-->>U: SOLD_OUT → 매진 안내
         else 대기 중
-            Q->>O: getRank(uuid)
+            Q->>O: getRank(token)
             O->>R: ZRANK waiting_queue
             R-->>O: rank
             O-->>Q: rank (없으면 null)
-            Q->>O: refresh(uuid)
+            Q->>O: refresh(token)
             O->>R: ZADD waiting_queue_heartbeat (score=현재시각)
             Q-->>U: WAITING (현재 순번)
         end
@@ -158,7 +158,7 @@ sequenceDiagram
     loop findExpired 결과가 요청 size보다 작을 때까지
         Q->>O: findExpired(5000)
         O->>R: ZRANGEBYSCORE waiting_queue_heartbeat -inf cutoff LIMIT 0 5000
-        R-->>O: 잠수 uuid 목록
+        R-->>O: 잠수 token 목록
         Q->>O: removeAll(expiredUuids)
         O->>R: ZREM waiting_queue + ZREM waiting_queue_heartbeat
     end
@@ -175,16 +175,16 @@ sequenceDiagram
     Q->>O: peek(toAdmit)
     O->>R: ZRANGE waiting_queue 0 (toAdmit-1)
     R-->>O: FIFO 순서 후보
-    O-->>Q: uuid 목록
+    O-->>Q: token 목록
 
     Note over Q: activate
-    Q->>A: activateBatch(uuids, ttl)
-    A->>R: Pipeline SET active_user:{uuid} "1" EX 300 (일괄)
+    Q->>A: activateBatch(tokens, ttl)
+    A->>R: Pipeline SET active_user:{token} "1" EX 300 (일괄)
 
     Note over Q: remove
-    Q->>O: removeAll(uuids)
-    O->>R: ZREM waiting_queue {uuids}
-    O->>R: ZREM waiting_queue_heartbeat {uuids}
+    Q->>O: removeAll(tokens)
+    O->>R: ZREM waiting_queue {tokens}
+    O->>R: ZREM waiting_queue_heartbeat {tokens}
 ```
 
 **removeExpired → peek → activate → remove 4단계**: 잠수 유저를 먼저 제거한 뒤 단순 FIFO peek으로 입장 후보를 조회합니다. activate 완료 후에야 큐에서 제거하므로 중간에 서버가 죽어도 데이터가 유실되지 않습니다.
@@ -318,7 +318,7 @@ flowchart TD
 ```java
 // SeatRedisAdapter.java
 Boolean success = redisTemplate.opsForValue()
-        .setIfAbsent(key, "held:" + uuid, ttlSeconds, TimeUnit.SECONDS);
+        .setIfAbsent(key, "held:" + token, ttlSeconds, TimeUnit.SECONDS);
 ```
 
 #### 해제: Lua 스크립트로 자신의 held만 삭제
@@ -355,14 +355,14 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 | 시점 | waiting_queue | waiting_queue_heartbeat |
 |------|--------------|------------------------|
 | 진입 (`POST /api/queues/tokens`) | ZADD {진입시각} | ZADD {진입시각} |
-| 폴링 (`GET /api/queues/tokens/{uuid}`) | 안 건드림 | ZADD {현재시각} |
+| 폴링 (`GET /api/queues/tokens/{token}`) | 안 건드림 | ZADD {현재시각} |
 | 잠수 제거 (`admitBatch` 1단계) | ZREM | ZRANGEBYSCORE + ZREM |
 | 입장 (`admitBatch` 3단계) | ZRANGE(peek) + ZREM | ZREM |
 
 **왜 Sorted Set 2개?**
 - `waiting_queue`의 score를 폴링 시각으로 갱신하면 FIFO 순서가 깨져서 rank가 매 폴링마다 뒤바뀝니다.
 - 진입 순서(rank)와 생존 여부(heartbeat)는 별개 관심사이므로 분리했습니다.
-- 개별 키(`queue_hb:{uuid}`) N개 대신 Sorted Set 1개로 관리하여 키스페이스를 오염시키지 않습니다.
+- 개별 키(`queue_hb:{token}`) N개 대신 Sorted Set 1개로 관리하여 키스페이스를 오염시키지 않습니다.
 
 #### 잠수 유저 제거 + 입장 제어 (removeExpired → peek → activate → remove)
 
@@ -370,7 +370,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 
 잠수 유저를 먼저 제거하므로, 이후 `peek`은 단순 FIFO 조회(`ZRANGE waiting_queue`)만 수행하면 됩니다.
 
-**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{uuid}` 키의 TTL(300초)로 자연 회수됩니다. 5분 뒤 자동 만료되어 슬롯이 반환됩니다.
+**입장 후 잠수 유저**: 입장 후 구매하지 않는 잠수 유저는 `active_user:{token}` 키의 TTL(300초)로 자연 회수됩니다. 5분 뒤 자동 만료되어 슬롯이 반환됩니다.
 
 **active 유저 카운트 — SCAN vs Sorted Set**:
 
@@ -385,7 +385,7 @@ waiting_queue_heartbeat (score = 마지막 폴링 시각) → 잠수 감지 및 
 
 - **removeExpired**: 잠수 유저(heartbeat 60초 이상 미갱신)를 대기열에서 제거합니다. 이후 peek이 단순해집니다.
 - **peek**: 큐에서 꺼내지 않고 FIFO 순서로 조회만 합니다.
-- **activate**: `active_user:{uuid}` 키를 Redis 파이프라이닝으로 일괄 생성합니다. 멱등 연산이라 재실행해도 TTL만 갱신됩니다. 서버가 죽으면 다음 주기에 다시 처리됩니다.
+- **activate**: `active_user:{token}` 키를 Redis 파이프라이닝으로 일괄 생성합니다. 멱등 연산이라 재실행해도 TTL만 갱신됩니다. 서버가 죽으면 다음 주기에 다시 처리됩니다.
 - **remove**: activate 완료 후에야 큐에서 제거합니다. "큐에서는 빠졌는데 active는 안 된" 상태가 발생하지 않습니다.
 
 **시간복잡도** (N = 대기열 인원, K = 입장 인원, M = 잠수 유저 수):
@@ -622,9 +622,9 @@ public void update(Ticket ticket) {
 ```
 VU 동시 시작 (각 VU 1회만 실행)
     │
-    ├── 1. POST /api/queues/tokens        대기열 진입, UUID 발급
+    ├── 1. POST /api/queues/tokens        대기열 진입, 토큰 발급
     │
-    ├── 2. GET /api/queues/tokens/{uuid}   5초 폴링, ACTIVE까지 대기
+    ├── 2. GET /api/queues/tokens/{token}   5초 폴링, ACTIVE까지 대기
     │       (반복)
     │
     ├── 3. GET /api/seats                  빈 좌석 조회
@@ -651,7 +651,7 @@ docker compose --profile k6-full-flow up -d
 | 스크립트 | VU    | CPU | Memory | 동작 | 종료 조건 |
 |---------|-------|-----|--------|------|----------|
 | `enter-stress.js` | 250 | 0.5코어 | 512M | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
-| `queue-stress.js` | 1,500 | 4코어 | 2G | 토큰 1개 발급 후 `GET /api/queues/tokens/{uuid}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
+| `queue-stress.js` | 1,500 | 4코어 | 2G | 토큰 1개 발급 후 `GET /api/queues/tokens/{token}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 Docker Compose profile로 실행합니다.
 
@@ -680,7 +680,7 @@ docker compose --profile k6-stress up -d
 | 엔드포인트 | 초당 처리량 | p95 | p99 | p99.9 | 비고 |
 |-----------|--------|-----|-----|-------|------|
 | `POST /api/queues/tokens` | ~6.4K req/s | 45ms | 55ms | 76ms | 1분에 ~38만 명 진입 가능 |
-| `GET /api/queues/tokens/{uuid}` | ~47.5K req/s | 46ms | 56ms | 79ms | 5초 폴링 기준 **~23.7만 명** 동시 대기 |
+| `GET /api/queues/tokens/{token}` | ~47.5K req/s | 46ms | 56ms | 79ms | 5초 폴링 기준 **~23.7만 명** 동시 대기 |
 | **합계** | **~53.8K req/s** | | | | |
 
 #### Redis (CPU 1.5코어, Memory 1GB, maxmemory 700MB)
@@ -964,8 +964,8 @@ src/main/resources/templates/
 
 | Method | Path | 설명 | 인증 |
 |--------|------|------|------|
-| POST | `/api/queues/tokens` | 대기열 진입, UUID 토큰 반환 | 없음 |
-| GET | `/api/queues/tokens/{uuid}` | 대기 순번/상태 조회 | 없음 |
+| POST | `/api/queues/tokens` | 대기열 진입, 토큰 반환 | 없음 |
+| GET | `/api/queues/tokens/{token}` | 대기 순번/상태 조회 | 없음 |
 | GET | `/api/seats` | 전체 좌석 현황 조회 | 없음 |
 | GET | `/api/seats/available-count` | 잔여 좌석 수 (Caffeine 캐시, 2초 TTL, sync=true) | 없음 |
 | POST | `/api/tickets` | 좌석 구매 | `X-Queue-Token` 헤더 |
@@ -976,9 +976,9 @@ src/main/resources/templates/
 
 | Key Pattern | Type | 값 예시 | TTL | 용도 |
 |-------------|------|---------|-----|------|
-| `waiting_queue` | Sorted Set | member=UUID, score=진입시각 | 없음 | FIFO 대기열 (rank 조회) |
-| `waiting_queue_heartbeat` | Sorted Set | member=UUID, score=마지막 폴링시각 | 없음 | 잠수 유저 감지 (ZREMRANGEBYSCORE) |
-| `active_user:{uuid}` | String | `"1"` | 300초 | 입장 허용 상태 |
+| `waiting_queue` | Sorted Set | member=token, score=진입시각 | 없음 | FIFO 대기열 (rank 조회) |
+| `waiting_queue_heartbeat` | Sorted Set | member=token, score=마지막 폴링시각 | 없음 | 잠수 유저 감지 (ZREMRANGEBYSCORE) |
+| `active_user:{token}` | String | `"1"` | 300초 | 입장 허용 상태 |
 | `seat:{seatNumber}` | String | `"held:{token}"` | 300초 | 좌석 임시 선점 |
 | `seat:{seatNumber}` | String | `"paid:{token}"` | 없음 (SET 자동 제거) | 좌석 결제 확정 |
 

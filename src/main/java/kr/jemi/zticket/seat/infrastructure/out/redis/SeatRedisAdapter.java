@@ -33,9 +33,9 @@ public class SeatRedisAdapter implements SeatPort {
     }
 
     @Override
-    public boolean holdSeat(int seatNumber, String uuid, long ttlSeconds) {
+    public boolean holdSeat(int seatNumber, String token, long ttlSeconds) {
         String key = KEY_PREFIX + seatNumber;
-        String value = "held:" + uuid;
+        String value = "held:" + token;
         Boolean success = redisTemplate.opsForValue()
                 .setIfAbsent(key, value, ttlSeconds, TimeUnit.SECONDS);
         if (Boolean.TRUE.equals(success)) {
@@ -50,14 +50,14 @@ public class SeatRedisAdapter implements SeatPort {
     }
 
     @Override
-    public void paySeat(int seatNumber, String uuid) {
-        redisTemplate.opsForValue().set(KEY_PREFIX + seatNumber, "paid:" + uuid);
+    public void paySeat(int seatNumber, String token) {
+        redisTemplate.opsForValue().set(KEY_PREFIX + seatNumber, "paid:" + token);
     }
 
     @Override
-    public void releaseSeat(int seatNumber, String uuid) {
+    public void releaseSeat(int seatNumber, String token) {
         redisTemplate.execute(RELEASE_IF_VALUE_SCRIPT,
-                List.of(KEY_PREFIX + seatNumber), "held:" + uuid);
+                List.of(KEY_PREFIX + seatNumber), "held:" + token);
     }
 
     @Override

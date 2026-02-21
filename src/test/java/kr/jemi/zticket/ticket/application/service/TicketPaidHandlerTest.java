@@ -53,7 +53,7 @@ class TicketPaidHandlerTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 티켓 UUID이면 IllegalStateException이 발생한다")
+    @DisplayName("존재하지 않는 ticketId이면 IllegalStateException이 발생한다")
     void shouldThrowWhenTicketNotFound() {
         // given
         given(ticketPort.findById(0)).willReturn(Optional.empty());

@@ -4,7 +4,7 @@ import kr.jemi.zticket.seat.domain.Seat;
 import kr.jemi.zticket.seat.domain.SeatStatus;
 
 /**
- * Redis에 저장된 좌석 값("held:uuid", "paid:uuid", null)을 파싱하는 adapter DTO.
+ * Redis에 저장된 좌석 값("held:token", "paid:token", null)을 파싱하는 adapter DTO.
  */
 public record RedisSeat(SeatStatus status, String owner) {
 

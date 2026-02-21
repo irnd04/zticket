@@ -113,8 +113,8 @@ class TicketTest {
         }
 
         @Test
-        @DisplayName("sync()는 좌석번호와 UUID를 변경하지 않는다")
-        void shouldNotChangeSeatNumberOrUuid() {
+        @DisplayName("sync()는 좌석번호와 토큰을 변경하지 않는다")
+        void shouldNotChangeSeatNumberOrToken() {
             Ticket ticket = Ticket.create(1, "token-1", 7);
 
             ticket.sync();

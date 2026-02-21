@@ -177,7 +177,7 @@
             word-break: break-all;
         }
 
-        .info-value.uuid {
+        .info-value.ticket-id {
             font-family: 'Courier New', Courier, monospace;
             font-size: 0.8rem;
             color: #6c63ff;
@@ -306,7 +306,7 @@
             <div class="ticket-card-body">
                 <div class="info-row">
                     <span class="info-label">티켓 번호</span>
-                    <span class="info-value uuid" id="ticketId">-</span>
+                    <span class="info-value ticket-id" id="ticketId">-</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">좌석</span>
@@ -357,9 +357,9 @@
         }
 
         function init() {
-            // 쿼리 파라미터 또는 sessionStorage에서 티켓 UUID 조회
-            var ticketUuid = getQueryParam('ticketId');
-            document.getElementById('ticketId').textContent = ticketUuid;
+            // 쿼리 파라미터 또는 sessionStorage에서 티켓 ID 조회
+            var ticketId = getQueryParam('ticketId');
+            document.getElementById('ticketId').textContent = ticketId;
 
             // sessionStorage에서 구매한 좌석 조회
             var seat = sessionStorage.getItem('purchasedSeat');
