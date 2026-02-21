@@ -651,7 +651,7 @@ docker compose --profile k6-full-flow up -d
 | 스크립트 | VU    | CPU | Memory | 동작 | 종료 조건 |
 |---------|-------|-----|--------|------|----------|
 | `enter-stress.js` | 250 | 0.5코어 | 512M | `POST /api/queues/tokens` 무한 반복 | 10분 경과 |
-| `queue-stress.js` | 1,500 | 4코어 | 2G | 토큰 1개 발급 후 `GET /api/queues/tokens/{token}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
+| `queue-stress.js` | 2,000 | 4코어 | 2G | 토큰 1개 발급 후 `GET /api/queues/tokens/{token}` 무한 폴링 (ACTIVE/SOLD_OUT 시 1회 작업 종료) | 10분 경과 |
 
 Docker Compose profile로 실행합니다.
 

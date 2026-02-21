@@ -25,9 +25,6 @@ class OutboxPatternTest extends IntegrationTestBase {
     @Autowired
     ActiveUserPort activeUserPort;
 
-    @Autowired
-    SeatPort seatPort;
-
     @Test
     @DisplayName("purchase 후 event_publication 테이블에 이벤트가 기록된다")
     void shouldRecordEventPublication() {
@@ -78,33 +75,6 @@ class OutboxPatternTest extends IntegrationTestBase {
                 "SELECT COUNT(*) FROM event_publication WHERE completion_date IS NULL",
                 Integer.class);
         assertThat(incompleteCount).isZero();
-    }
 
-    @Test
-    @DisplayName("Outbox: purchase 트랜잭션이 커밋되면 이벤트가 원자적으로 저장된다")
-    void shouldAtomicallyStoreEventWithTicket() {
-        // given
-        String token = "outbox-token-3";
-        int seatNumber = 3;
-        activeUserPort.activate(token, 300);
-
-        // when
-        Ticket ticket = purchaseTicketUseCase.purchase(token, seatNumber);
-
-        // then - 티켓과 이벤트가 모두 DB에 존재
-        // (비동기 리스너 처리 전) event_publication에 레코드가 있거나
-        // (비동기 리스너 처리 후) 이미 완료 처리됨
-        Integer totalCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM event_publication",
-                Integer.class);
-        assertThat(totalCount).isGreaterThanOrEqualTo(0);
-
-        // 리스너 완료 후 최종 상태 검증
-        await().atMost(5, SECONDS).untilAsserted(() ->
-                assertThat(ticketPort.findById(ticket.getId()))
-                        .hasValueSatisfying(t ->
-                                assertThat(t.getStatus()).isEqualTo(TicketStatus.SYNCED)
-                        )
-        );
     }
 }

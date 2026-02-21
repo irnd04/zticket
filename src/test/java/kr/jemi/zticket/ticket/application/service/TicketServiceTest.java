@@ -37,11 +37,13 @@ class TicketServiceTest {
     private TicketService ticketService;
 
     private static final long HOLD_TTL_SECONDS = 300L;
+    private static final int TOTAL_SEAT_COUNT = 1000;
 
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(
-                seatHoldPort, activeUserCheckPort, ticketWriter, tsidFactory, HOLD_TTL_SECONDS);
+                seatHoldPort, activeUserCheckPort, ticketWriter, tsidFactory,
+                HOLD_TTL_SECONDS, TOTAL_SEAT_COUNT);
     }
 
     @Nested
@@ -91,8 +93,35 @@ class TicketServiceTest {
     }
 
     @Nested
-    @DisplayName("purchase() - 1단계: 활성 사용자 검증")
-    class Phase1ActiveUserValidation {
+    @DisplayName("purchase() - 1단계: 좌석 번호 범위 검증")
+    class Phase1SeatNumberValidation {
+
+        @Test
+        @DisplayName("좌석 번호가 0이면 INVALID_SEAT_NUMBERS 예외가 발생한다")
+        void shouldRejectZeroSeatNumber() {
+            assertThatThrownBy(() -> ticketService.purchase("token", 0))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_SEAT_NUMBERS);
+
+            then(activeUserCheckPort).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("좌석 번호가 총 좌석 수를 초과하면 INVALID_SEAT_NUMBERS 예외가 발생한다")
+        void shouldRejectSeatNumberExceedingTotal() {
+            assertThatThrownBy(() -> ticketService.purchase("token", TOTAL_SEAT_COUNT + 1))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_SEAT_NUMBERS);
+
+            then(activeUserCheckPort).shouldHaveNoInteractions();
+        }
+    }
+
+    @Nested
+    @DisplayName("purchase() - 2단계: 활성 사용자 검증")
+    class Phase2ActiveUserValidation {
 
         @Test
         @DisplayName("비활성 사용자가 구매 시도하면 NOT_ACTIVE_USER 예외가 발생한다")
@@ -112,8 +141,8 @@ class TicketServiceTest {
     }
 
     @Nested
-    @DisplayName("purchase() - 2단계: 좌석 선점 (Redis SET NX EX)")
-    class Phase2SeatHold {
+    @DisplayName("purchase() - 3단계: 좌석 선점 (Redis SET NX EX)")
+    class Phase3SeatHold {
 
         @Test
         @DisplayName("이미 선점된 좌석에 대해 SEAT_ALREADY_HELD 예외가 발생한다")
@@ -151,8 +180,8 @@ class TicketServiceTest {
     }
 
     @Nested
-    @DisplayName("purchase() - 3단계 실패: DB 저장 실패 시 Redis 롤백")
-    class Phase3DbFailureRollback {
+    @DisplayName("purchase() - 4단계 실패: DB 저장 실패 시 Redis 롤백")
+    class Phase4DbFailureRollback {
 
         @Test
         @DisplayName("DB 저장 실패 시 Redis 좌석을 즉시 해제(롤백)한다")

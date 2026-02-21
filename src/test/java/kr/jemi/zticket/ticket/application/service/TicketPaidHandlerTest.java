@@ -39,7 +39,7 @@ class TicketPaidHandlerTest {
     @DisplayName("정상 처리: paySeat → sync+update → deactivate 순서로 실행된다")
     void shouldExecuteStepsInOrder() {
         // given
-        Ticket ticket = new Ticket(1L, 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), null);
+        Ticket ticket = new Ticket(1L, 7, TicketStatus.PAID, "token-1", LocalDateTime.now(), LocalDateTime.now());
         given(ticketPort.findById(1)).willReturn(Optional.of(ticket));
 
         // when

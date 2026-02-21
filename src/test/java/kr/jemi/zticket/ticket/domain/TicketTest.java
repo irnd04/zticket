@@ -41,14 +41,14 @@ class TicketTest {
         }
 
         @Test
-        @DisplayName("생성된 티켓은 createdAt이 설정되고 updatedAt은 null이어야 한다")
-        void shouldHaveCreatedAtAndNullUpdatedAt() {
+        @DisplayName("생성된 티켓은 createdAt과 updatedAt이 설정되어야 한다")
+        void shouldHaveCreatedAtAndUpdatedAt() {
             LocalDateTime before = LocalDateTime.now();
             Ticket ticket = Ticket.create(1, "token-1", 7);
             LocalDateTime after = LocalDateTime.now();
 
             assertThat(ticket.getCreatedAt()).isBetween(before, after);
-            assertThat(ticket.getUpdatedAt()).isNull();
+            assertThat(ticket.getUpdatedAt()).isBetween(before, after);
         }
 
         @Test
@@ -73,6 +73,40 @@ class TicketTest {
     }
 
     @Nested
+    @DisplayName("Ticket 검증")
+    class Validation {
+
+        @Test
+        @DisplayName("좌석 번호가 0이면 생성에 실패한다")
+        void shouldRejectZeroSeatNumber() {
+            assertThatThrownBy(() -> Ticket.create(1, "token-1", 0))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("좌석 번호가 음수이면 생성에 실패한다")
+        void shouldRejectNegativeSeatNumber() {
+            assertThatThrownBy(() -> Ticket.create(1, "token-1", -1))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("queueToken이 null이면 생성에 실패한다")
+        void shouldRejectNullQueueToken() {
+            assertThatThrownBy(() -> Ticket.create(1, null, 7))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("status가 null이면 생성에 실패한다")
+        void shouldRejectNullStatus() {
+            assertThatThrownBy(() -> new Ticket(1L, 7, null, "token-1",
+                    LocalDateTime.now(), LocalDateTime.now()))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Nested
     @DisplayName("domainEvents() - 도메인 이벤트")
     class DomainEvents {
 
@@ -80,7 +114,7 @@ class TicketTest {
         @DisplayName("생성자로 복원된 티켓은 도메인 이벤트가 없다")
         void shouldHaveNoEventsWhenRestoredFromConstructor() {
             Ticket ticket = new Ticket(1L, 7, TicketStatus.PAID, "token-1",
-                    LocalDateTime.now(), null);
+                    LocalDateTime.now(), LocalDateTime.now());
 
             assertThat(ticket.pullEvents()).isEmpty();
         }
@@ -125,16 +159,30 @@ class TicketTest {
         }
 
         @Test
-        @DisplayName("sync() 호출 시 updatedAt이 설정된다")
-        void shouldSetUpdatedAtOnSync() {
+        @DisplayName("sync() 호출 시 updatedAt이 갱신된다")
+        void shouldUpdateUpdatedAtOnSync() {
             Ticket ticket = Ticket.create(1, "token-1", 7);
-            assertThat(ticket.getUpdatedAt()).isNull();
+            LocalDateTime initialUpdatedAt = ticket.getUpdatedAt();
 
             LocalDateTime before = LocalDateTime.now();
             ticket.sync();
             LocalDateTime after = LocalDateTime.now();
 
             assertThat(ticket.getUpdatedAt()).isBetween(before, after);
+            assertThat(ticket.getUpdatedAt()).isAfterOrEqualTo(initialUpdatedAt);
+        }
+
+        @Test
+        @DisplayName("sync() 후에도 모든 필드가 NotNull이다")
+        void shouldPassValidationAfterSync() {
+            Ticket ticket = Ticket.create(1, "token-1", 7);
+
+            ticket.sync();
+
+            assertThat(ticket.getStatus()).isNotNull();
+            assertThat(ticket.getQueueToken()).isNotNull();
+            assertThat(ticket.getCreatedAt()).isNotNull();
+            assertThat(ticket.getUpdatedAt()).isNotNull();
         }
     }
 }
