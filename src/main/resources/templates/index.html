@@ -302,7 +302,6 @@
                     throw new Error('유효한 토큰을 받지 못했습니다.');
                 }
 
-                sessionStorage.setItem('queueToken', token);
                 window.location.href = '/queue?token=' + encodeURIComponent(token);
             } catch (error) {
                 errorEl.textContent = error.message;

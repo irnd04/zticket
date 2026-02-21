@@ -598,14 +598,12 @@
                 var data = await response.json();
                 var ticketId = data.ticketId
 
-                sessionStorage.setItem('purchasedSeat', seatLabel(selectedSeat));
-                sessionStorage.setItem('ticketId', ticketId);
-
                 hideLoading();
                 showToast('구매가 완료되었습니다!', true);
 
                 setTimeout(function() {
-                    window.location.href = '/confirmation?ticketId=' + encodeURIComponent(ticketId);
+                    window.location.href = '/confirmation?ticketId=' + encodeURIComponent(ticketId)
+                        + '&seat=' + encodeURIComponent(seatLabel(selectedSeat));
                 }, 500);
 
             } catch (error) {

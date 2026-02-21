@@ -357,12 +357,11 @@
         }
 
         function init() {
-            // 쿼리 파라미터 또는 sessionStorage에서 티켓 ID 조회
+            // 쿼리 파라미터에서 티켓 ID 조회
             var ticketId = getQueryParam('ticketId');
             document.getElementById('ticketId').textContent = ticketId;
 
-            // sessionStorage에서 구매한 좌석 조회
-            var seat = sessionStorage.getItem('purchasedSeat');
+            var seat = getQueryParam('seat');
             document.getElementById('seat').textContent = seat ? seat + '번' : '-';
 
             // 구매 일시 설정
