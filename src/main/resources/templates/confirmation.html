@@ -306,7 +306,7 @@
             <div class="ticket-card-body">
                 <div class="info-row">
                     <span class="info-label">티켓 번호</span>
-                    <span class="info-value uuid" id="ticketUuid">-</span>
+                    <span class="info-value uuid" id="ticketId">-</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">좌석</span>
@@ -358,8 +358,8 @@
 
         function init() {
             // 쿼리 파라미터 또는 sessionStorage에서 티켓 UUID 조회
-            var ticketUuid = getQueryParam('ticketUuid') || sessionStorage.getItem('ticketUuid') || '-';
-            document.getElementById('ticketUuid').textContent = ticketUuid;
+            var ticketUuid = getQueryParam('ticketId');
+            document.getElementById('ticketId').textContent = ticketUuid;
 
             // sessionStorage에서 구매한 좌석 조회
             var seat = sessionStorage.getItem('purchasedSeat');
