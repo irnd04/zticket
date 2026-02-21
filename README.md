@@ -35,6 +35,7 @@ Java 25 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기�
 | Template | Thymeleaf | - |
 | Build | Gradle | 9.3 |
 | Modularity | Spring Modulith | 2.0.2 |
+| DB Migration | Flyway | 11.x |
 | Architecture Test | ArchUnit | 1.3.0 |
 | Container | Docker Compose | - |
 
