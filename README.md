@@ -49,7 +49,7 @@ docker compose up -d
 
 # 2. 접속
 open http://localhost:8080            # ZTicket
-open http://localhost:8080/swagger-ui # Swagger UI
+open http://localhost:8080/swagger-ui/index.html # Swagger UI
 open http://localhost:3000            # Grafana
 ```
 ---
