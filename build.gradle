@@ -19,6 +19,12 @@ repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        mavenBom 'org.springframework.modulith:spring-modulith-bom:2.0.2'
+    }
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
@@ -27,6 +33,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.modulith:spring-modulith-starter-core'
     implementation 'io.hypersistence:hypersistence-tsid:2.1.4'
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.6.0'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-spring:7.6.0'
@@ -35,6 +42,8 @@ dependencies {
     runtimeOnly 'com.mysql:mysql-connector-j'
     testImplementation 'org.awaitility:awaitility'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.3.0'
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation platform('org.testcontainers:testcontainers-bom:1.20.4')
     testImplementation 'org.testcontainers:testcontainers'

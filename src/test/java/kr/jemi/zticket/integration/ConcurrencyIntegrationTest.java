@@ -1,6 +1,6 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.ticket.adapter.out.persistence.TicketJpaEntity;
+import kr.jemi.zticket.ticket.infrastructure.out.persistence.TicketJpaEntity;
 import kr.jemi.zticket.ticket.application.port.in.PurchaseTicketUseCase;
 import kr.jemi.zticket.queue.application.port.out.ActiveUserPort;
 import kr.jemi.zticket.ticket.application.port.out.TicketPort;

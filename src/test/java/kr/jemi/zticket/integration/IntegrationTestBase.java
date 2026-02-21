@@ -1,8 +1,8 @@
 package kr.jemi.zticket.integration;
 
-import kr.jemi.zticket.queue.adapter.in.scheduler.AdmissionScheduler;
-import kr.jemi.zticket.ticket.adapter.in.scheduler.SyncScheduler;
-import kr.jemi.zticket.ticket.adapter.out.persistence.TicketJpaRepository;
+import kr.jemi.zticket.queue.infrastructure.in.scheduler.AdmissionScheduler;
+import kr.jemi.zticket.ticket.infrastructure.in.scheduler.SyncScheduler;
+import kr.jemi.zticket.ticket.infrastructure.out.persistence.TicketJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

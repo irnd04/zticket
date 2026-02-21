@@ -34,6 +34,8 @@ Java 25 Virtual Thread 기반의 높은 동시성 처리와 Redis 기반 대기�
 | Cache/Queue | Redis | 7 |
 | Template | Thymeleaf | - |
 | Build | Gradle | 9.3 |
+| Modularity | Spring Modulith | 2.0.2 |
+| Architecture Test | ArchUnit | 1.3.0 |
 | Container | Docker Compose | - |
 
 ---
@@ -56,14 +58,16 @@ open http://localhost:3000   # Grafana (admin / admin)
 
 ```mermaid
 flowchart TD
-    HTTP[HTTP Request] --> IN[Adapter IN<br/>Controller / Scheduler]
+    HTTP[HTTP Request] --> IN[Infrastructure IN<br/>Controller / Scheduler / EventListener]
     IN -- UseCase 인터페이스 호출 --> APP[Application Service<br/>유스케이스 오케스트레이션]
-    APP -- Port OUT 인터페이스 호출 --> OUT[Adapter OUT<br/>Redis Adapter / JPA Adapter]
+    APP -- Port OUT 인터페이스 호출 --> OUT[Infrastructure OUT<br/>Redis Adapter / JPA Adapter]
     OUT --> Redis[(Redis)]
     OUT --> MySQL[(MySQL)]
 ```
 
-**핵심 원칙**: domain 패키지는 순수 Java로만 구성되며, Spring/JPA/Redis 등 프레임워크 의존성이 전혀 없습니다. 모든 외부 기술은 adapter 패키지에서 port 인터페이스를 구현하는 방식으로 연결됩니다.
+**핵심 원칙**: domain 패키지는 순수 Java로만 구성되며, Spring/JPA/Redis 등 프레임워크 의존성이 전혀 없습니다. 모든 외부 기술은 infrastructure 패키지에서 port 인터페이스를 구현하는 방식으로 연결됩니다.
+
+**모듈 경계 강제**: Spring Modulith로 모듈 경계를 정의하고, ArchUnit으로 헥사고날 레이어 간 의존성 규칙을 컴파일 타임에 강제합니다. 크로스 모듈 호출은 `api/` 패키지의 Facade 인터페이스를 통해서만 허용되며, application 계층에서는 port.out → infrastructure.out → Facade 경로로 접근합니다.
 
 ---
 
@@ -407,37 +411,38 @@ Controller → Service (구체 클래스) → Repository (구체 클래스)
 #### 선택: 헥사고날 아키텍처 (Ports and Adapters) + 도메인 단위 패키지
 
 ```
-queue/           → 대기열 도메인 (domain + application + adapter)
-seat/            → 좌석 도메인 (domain + application + adapter)
-ticket/          → 티켓 도메인 (domain + application + adapter)
-각 도메인 내:
-  domain/        → 순수 Java (QueueToken, Ticket, SeatStatus)
-  application/   → 유스케이스 오케스트레이션 + Port 인터페이스
-  adapter/       → Controller, Scheduler, Redis/JPA Adapter
+queue/           → 대기열 모듈 (api + domain + application + infrastructure)
+seat/            → 좌석 모듈 (api + domain + application + infrastructure)
+ticket/          → 티켓 모듈 (api + domain + application + infrastructure)
+각 모듈 내:
+  api/            → Facade 인터페이스 (외부 모듈에 공개되는 API)
+  domain/         → 순수 Java (QueueToken, Ticket, SeatStatus)
+  application/    → port (in/out) + service (유스케이스 구현)
+  infrastructure/ → Controller, Scheduler, EventListener, Redis/JPA Adapter
 ```
 
 헥사고날 아키텍처는 **DIP(의존성 역전 원칙)**와 **객체 변환**을 통해 레이어드의 문제를 해결합니다.
 
 **1) Port 인터페이스로 의존성 역전**
 
-Service가 Repository 구체 클래스에 직접 의존하는 대신, application 패키지에 Port 인터페이스를 정의하고 adapter가 이를 구현합니다. 의존성 방향이 역전되어 인프라(adapter)가 도메인(application)에 의존하게 됩니다.
+Service가 Repository 구체 클래스에 직접 의존하는 대신, application 패키지에 Port 인터페이스를 정의하고 infrastructure가 이를 구현합니다. 의존성 방향이 역전되어 인프라(infrastructure)가 도메인(application)에 의존하게 됩니다.
 
 ```
 레이어드:    Controller → Service → Repository (구체)     의존성: 위 → 아래
 헥사고날:    Controller → UseCase(Port) ← Service → Port(인터페이스) ← Adapter
-             adapter/in    port/in      application     port/out       adapter/out
+             infrastructure/in  port/in  application/service  port/out  infrastructure/out
 ```
 
-**2) Adapter에서 JPA Entity ↔ 도메인 객체 변환**
+**2) Infrastructure에서 JPA Entity ↔ 도메인 객체 변환**
 
-레이어드에서는 `@Entity`가 붙은 JPA 엔티티를 Service까지 그대로 올려보냅니다. 도메인 객체 자체가 JPA에 종속됩니다. 헥사고날에서는 Adapter가 경계에서 JPA 엔티티를 도메인 객체로 변환하여 반환합니다. Port 인터페이스의 반환 타입이 도메인 객체(`Ticket`)이므로, 도메인은 JPA의 존재를 알 수 없습니다.
+레이어드에서는 `@Entity`가 붙은 JPA 엔티티를 Service까지 그대로 올려보냅니다. 도메인 객체 자체가 JPA에 종속됩니다. 헥사고날에서는 Infrastructure Adapter가 경계에서 JPA 엔티티를 도메인 객체로 변환하여 반환합니다. Port 인터페이스의 반환 타입이 도메인 객체(`Ticket`)이므로, 도메인은 JPA의 존재를 알 수 없습니다.
 
 ```
 레이어드:    Repository → TicketEntity(@Entity) → Service → Controller
              JPA 엔티티가 도메인까지 그대로 노출
 
 헥사고날:    TicketJpaAdapter → TicketJpaEntity(@Entity) → toDomain() → Ticket(순수 Java)
-             Adapter 내부에서 변환, Port 밖으로는 도메인 객체만 나감
+             Infrastructure 내부에서 변환, Port 밖으로는 도메인 객체만 나감
 ```
 
 ```java
@@ -451,15 +456,16 @@ public Ticket save(Ticket ticket) {
 이 두 가지 메커니즘(DIP + 객체 변환)으로 레이어드의 세 가지 문제를 해결합니다:
 
 **채택 이유**:
-- **도메인 순수성**: Port 인터페이스가 경계를, Adapter의 객체 변환이 분리를 만듭니다. `Ticket.java`에 `@Entity` 같은 JPA 어노테이션이 없습니다. Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
-- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatPort`와 `TicketPort`만 Mock하면 Redis/MySQL 없이도 구매 로직을 완벽히 테스트할 수 있습니다.
-- **의존성 방향 제어**: DIP에 의해 모든 의존성이 domain을 향합니다 (`adapter → application → domain`). domain은 어디에도 의존하지 않습니다.
-- **경계의 명시성**: `port/in`, `port/out`, `adapter/in`, `adapter/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
+- **도메인 순수성**: Port 인터페이스가 경계를, Infrastructure의 객체 변환이 분리를 만듭니다. `Ticket.java`에 `@Entity` 같은 JPA 어노테이션이 없습니다. Redis를 Memcached로, MySQL을 PostgreSQL로 교체해도 domain 패키지는 한 줄도 수정하지 않습니다.
+- **테스트 용이성**: Port 인터페이스 덕분에 단위 테스트에서 Mock으로 교체할 수 있습니다. `TicketService`는 `SeatHoldPort`와 `TicketPort`만 Mock하면 Redis/MySQL 없이도 구매 로직을 완벽히 테스트할 수 있습니다.
+- **의존성 방향 제어**: DIP에 의해 모든 의존성이 domain을 향합니다 (`infrastructure → application → domain`). domain은 어디에도 의존하지 않습니다.
+- **경계의 명시성**: `port/in`, `port/out`, `infrastructure/in`, `infrastructure/out`이라는 패키지 구조가 안쪽(도메인)과 바깥쪽(인프라)의 경계를 명확히 드러냅니다.
+- **모듈 경계 강제**: Spring Modulith의 `@ApplicationModule`과 `@NamedInterface`로 모듈 간 의존성을 선언하고, ArchUnit으로 헥사고날 레이어 규칙을 컴파일 타임에 검증합니다.
 
 **트레이드오프**:
-- **파일 수 증가**: `SeatPort`(인터페이스) + `SeatRedisAdapter`(구현)처럼 인터페이스-구현 쌍이 반드시 필요합니다. 레이어드라면 `SeatService` 하나로 끝납니다.
+- **파일 수 증가**: `SeatPort`(인터페이스) + `SeatRedisAdapter`(구현)처럼 인터페이스-구현 쌍이 반드시 필요합니다. 크로스 모듈 호출 시에는 Port + Infrastructure Adapter + Facade까지 필요합니다.
 - **간접 참조 비용**: Controller → UseCase 인터페이스 → Service → Port 인터페이스 → Adapter. 호출 체인이 길어져 코드를 따라가기 어려울 수 있습니다.
-- **매핑 코드 추가**: Adapter마다 `fromDomain()`과 `toDomain()` 변환 코드가 필요합니다. 레이어드에서는 `@Entity` 객체를 그대로 사용하므로 이 코드가 없습니다.
+- **매핑 코드 추가**: Infrastructure Adapter마다 `fromDomain()`과 `toDomain()` 변환 코드가 필요합니다. 레이어드에서는 `@Entity` 객체를 그대로 사용하므로 이 코드가 없습니다.
 
 ---
 
@@ -782,15 +788,19 @@ Row 단위로 그룹핑되어 있으며, 각 Row를 클릭하면 접고 펼 수 
 
 ## 패키지 구조
 
-도메인(queue, seat, ticket)이 최상위 패키지가 되고, 각 도메인 안에 레이어(domain, application, adapter)가 배치되는 구조입니다.
+도메인(queue, seat, ticket)이 최상위 패키지가 되고, 각 도메인 안에 레이어(api, domain, application, infrastructure)가 배치되는 구조입니다. Spring Modulith가 모듈 경계를, ArchUnit이 헥사고날 레이어 규칙을 강제합니다.
 
 ```
 kr.jemi.zticket
-├── ZticketApplication.java                     @EnableScheduling
+├── ZticketApplication.java                     @Modulithic @EnableScheduling
 │
-├── queue/                                      대기열 도메인 (독립)
+├── queue/                                      대기열 모듈
+│   ├── package-info.java                       @ApplicationModule(allowedDependencies)
+│   ├── api/
+│   │   ├── package-info.java                   @NamedInterface("queue-api")
+│   │   └── QueueFacade.java                    isActive(), deactivate() — 외부 모듈 공개 API
 │   ├── domain/
-│   │   ├── QueueToken.java                     record(uuid, rank, status)
+│   │   ├── QueueToken.java                     record(token, rank, status)
 │   │   └── QueueStatus.java                    enum: WAITING, ACTIVE, SOLD_OUT
 │   ├── application/
 │   │   ├── port/
@@ -800,26 +810,34 @@ kr.jemi.zticket
 │   │   │   │   └── AdmitUsersUseCase.java         잠수 제거 + 배치 입장
 │   │   │   └── out/
 │   │   │       ├── WaitingQueuePort.java          대기열 Sorted Set 조작
-│   │   │       ├── WaitingQueueHeartbeatPort.java             heartbeat Sorted Set 조작
-│   │   │       └── ActiveUserPort.java            active 유저 SET 조작
-│   │   ├── QueueService.java                      대기열 비즈니스 로직
-│   │   └── WaitingQueueOperator.java              대기열+heartbeat 조합 연산
-│   └── adapter/
+│   │   │       ├── WaitingQueueHeartbeatPort.java heartbeat Sorted Set 조작
+│   │   │       ├── ActiveUserPort.java            active 유저 SET 조작
+│   │   │       └── AvailableSeatCountPort.java    잔여 좌석 수 조회 (→ seat 모듈)
+│   │   └── service/
+│   │       ├── QueueService.java                  대기열 비즈니스 로직 + QueueFacade 구현
+│   │       └── WaitingQueueOperator.java          대기열+heartbeat 조합 연산
+│   └── infrastructure/
 │       ├── in/
 │       │   ├── web/
 │       │   │   ├── QueueApiController.java     /api/queues/tokens/**
 │       │   │   └── dto/
-│       │   │       ├── TokenResponse.java              진입 응답 (uuid)
+│       │   │       ├── TokenResponse.java              진입 응답 (token)
 │       │   │       └── QueueStatusResponse.java        폴링 응답 (status, rank)
 │       │   └── scheduler/
 │       │       └── AdmissionScheduler.java          5초 잠수 제거 + 배치 입장
 │       └── out/
-│           └── redis/
-│               ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
-│               ├── WaitingQueueHeartbeatRedisAdapter.java     Sorted Set 기반 heartbeat
-│               └── ActiveUserRedisAdapter.java    SET 기반 active 관리
+│           ├── redis/
+│           │   ├── WaitingQueueRedisAdapter.java  Sorted Set 기반 대기열
+│           │   ├── WaitingQueueHeartbeatRedisAdapter.java  Sorted Set 기반 heartbeat
+│           │   └── ActiveUserRedisAdapter.java    SET 기반 active 관리
+│           └── seat/
+│               └── AvailableSeatCountAdapter.java SeatFacade → AvailableSeatCountPort 변환
 │
-├── seat/                                       좌석 도메인 (독립)
+├── seat/                                       좌석 모듈 (독립)
+│   ├── package-info.java                       @ApplicationModule(allowedDependencies)
+│   ├── api/
+│   │   ├── package-info.java                   @NamedInterface("seat-api")
+│   │   └── SeatFacade.java                     holdSeat(), paySeat(), releaseSeat(), getAvailableCount()
 │   ├── domain/
 │   │   ├── SeatStatus.java                     enum: AVAILABLE, HELD, PAID, UNKNOWN
 │   │   ├── Seat.java                           좌석 상태 + 소유자 (도메인 객체)
@@ -827,11 +845,12 @@ kr.jemi.zticket
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
-│   │   │   │   └── GetSeatsUseCase.java           좌석 현황 조회
+│   │   │   │   └── GetSeatsUseCase.java           좌석 현황 조회 + 잔여 좌석 수
 │   │   │   └── out/
 │   │   │       └── SeatPort.java           hold/pay/release/getStatuses
-│   │   └── SeatService.java                    좌석 현황 조회
-│   └── adapter/
+│   │   └── service/
+│   │       └── SeatService.java                좌석 비즈니스 로직 + SeatFacade 구현
+│   └── infrastructure/
 │       ├── in/
 │       │   └── web/
 │       │       ├── SeatApiController.java      /api/seats, /api/seats/available-count
@@ -843,37 +862,52 @@ kr.jemi.zticket
 │               ├── SeatRedisAdapter.java   holdSeat(setIfAbsent) + paySeat(SET)
 │               └── RedisSeat.java             Redis 값 파싱 DTO
 │
-├── ticket/                                     티켓 도메인 (→ queue, seat 의존)
+├── ticket/                                     티켓 모듈 (→ queue, seat 의존)
+│   ├── package-info.java                       @ApplicationModule(allowedDependencies)
+│   ├── api/
+│   │   ├── package-info.java                   @NamedInterface("ticket-api")
+│   │   └── (이벤트 등 외부 공개 타입)
 │   ├── domain/
 │   │   ├── Ticket.java                         도메인 엔티티
 │   │   ├── TicketStatus.java                   enum: PAID, SYNCED
-│   │   └── TicketPaidEvent.java                record(ticketUuid) - 비동기 후처리 이벤트
+│   │   └── TicketPaidEvent.java                record(ticketId) - 비동기 후처리 이벤트
 │   ├── application/
 │   │   ├── port/
 │   │   │   ├── in/
 │   │   │   │   ├── PurchaseTicketUseCase.java  purchase(queueToken, seatNumber)
+│   │   │   │   ├── HandleTicketPaidUseCase.java 비동기 후처리
 │   │   │   │   └── SyncTicketUseCase.java      syncPaidTickets()
 │   │   │   └── out/
-│   │   │       └── TicketPort.java  save/findByUuid/findByStatus
-│   │   ├── TicketService.java                  동기 3단계 구매 + 이벤트 발행
-│   │   ├── TicketSyncService.java              PAID 티켓 이벤트 재발행 (배치 복구)
-│   │   └── TicketPaidEventListener.java        @Async 후처리 (paid 전환, SYNCED, deactivate)
-│   └── adapter/
+│   │   │       ├── TicketPort.java             insert/update/findById/findByStatus
+│   │   │       ├── ActiveUserCheckPort.java    활성 사용자 검증 (→ queue 모듈)
+│   │   │       └── SeatHoldPort.java           좌석 선점/결제/해제 (→ seat 모듈)
+│   │   └── service/
+│   │       ├── TicketService.java              동기 3단계 구매 + 이벤트 발행
+│   │       ├── TicketPaidHandler.java          비동기 후처리 (paid 전환, SYNCED, deactivate)
+│   │       └── TicketSyncService.java          PAID 티켓 이벤트 재발행 (배치 복구)
+│   └── infrastructure/
 │       ├── in/
 │       │   ├── web/
 │       │   │   ├── TicketApiController.java    /api/tickets
 │       │   │   └── dto/
 │       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
 │       │   │       └── PurchaseResponse.java   구매 결과 (ticketId, seatNumber)
-│       │   └── scheduler/
-│       │       └── SyncScheduler.java          1분 PAID 동기화
+│       │   ├── scheduler/
+│       │   │   └── SyncScheduler.java          1분 PAID 동기화
+│       │   └── event/
+│       │       └── TicketPaidEventListener.java @Async @EventListener 어댑터
 │       └── out/
-│           └── persistence/
-│               ├── TicketJpaEntity.java         seatNumber UNIQUE
-│               ├── TicketJpaRepository.java        Spring Data JPA
-│               └── TicketJpaAdapter.java        Upsert 패턴 (findById 기반)
+│           ├── persistence/
+│           │   ├── TicketJpaEntity.java         seatNumber UNIQUE
+│           │   ├── TicketJpaRepository.java        Spring Data JPA
+│           │   └── TicketJpaAdapter.java        Upsert 패턴 (findById 기반)
+│           ├── queue/
+│           │   └── ActiveUserCheckAdapter.java  QueueFacade → ActiveUserCheckPort 변환
+│           └── seat/
+│               └── SeatHoldAdapter.java         SeatFacade → SeatHoldPort 변환
 │
-├── common/
+├── common/                                     @ApplicationModule(type = OPEN)
+│   ├── package-info.java
 │   ├── web/
 │   │   └── PageController.java                 Thymeleaf 뷰 (여러 도메인에 걸침)
 │   ├── exception/
@@ -883,18 +917,23 @@ kr.jemi.zticket
 │   └── dto/
 │       └── ErrorResponse.java                     에러 응답 DTO
 │
-└── config/
+└── config/                                     @ApplicationModule(type = OPEN)
+    ├── package-info.java
     └── AsyncConfig.java                       @Async 설정 + AsyncUncaughtExceptionHandler
 ```
 
-### 도메인 간 의존 관계
+### 모듈 간 의존 관계
 
 ```
-ticket → queue (ActiveUserPort: 활성 사용자 검증)
-ticket → seat  (SeatPort: 좌석 선점/결제)
-seat   → (독립)
-queue  → (독립)
+ticket  →  queue :: queue-api  (QueueFacade: 활성 사용자 검증/비활성화)
+ticket  →  seat :: seat-api    (SeatFacade: 좌석 선점/결제/해제)
+queue   →  seat :: seat-api    (SeatFacade: 잔여 좌석 수 조회)
+seat    →  (독립)
+common  →  공유 모듈 (OPEN)
+config  →  공유 모듈 (OPEN)
 ```
+
+크로스 모듈 호출 경로: `Application Service → Port OUT → Infrastructure OUT Adapter → 대상 모듈 Facade`
 
 ### Thymeleaf 화면
 
