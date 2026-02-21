@@ -198,7 +198,7 @@ sequenceDiagram
     participant C as 클라이언트
     participant T as TicketService
     participant W as TicketWriter<br/>(@Transactional)
-    participant L as TicketPaidEventListener<br/>(@ApplicationModuleListener)
+    participant L as TicketPaidEventListener
     participant R as Redis
     participant DB as MySQL
 
@@ -234,11 +234,11 @@ sequenceDiagram
 
 구매 확정(DB PAID) 후 Redis 상태 동기화는 비동기로 처리됩니다. Spring Modulith의 Outbox 패턴이 이벤트 전달을 보장하고, 실패 시 재발행 스케줄러가 복구합니다.
 
-**정상 흐름**: 트랜잭션 커밋 시 `ticket`과 `event_publication`이 함께 저장됩니다. 커밋 후 `@ApplicationModuleListener`가 비동기로 이벤트를 수신하여 Redis 동기화를 수행하고, 완료되면 `event_publication` 레코드가 완료 처리됩니다.
+**정상 흐름**: 트랜잭션 커밋 시 `ticket`과 `event_publication`이 함께 저장됩니다. 커밋 후 리스너가 비동기로 이벤트를 수신하여 Redis 동기화를 수행하고, 완료되면 `event_publication` 레코드가 완료 처리됩니다.
 
 ```mermaid
 sequenceDiagram
-    participant L as TicketPaidEventListener<br/>(@ApplicationModuleListener)
+    participant L as TicketPaidEventListener
     participant R as Redis
     participant DB as MySQL
 
@@ -305,7 +305,7 @@ flowchart TD
 #### Case 3: 이벤트 리스너 처리 중 실패 (paid 전환 / SYNCED 갱신 / active 제거)
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
-- **상태**: 리스너(`@ApplicationModuleListener`)가 `SET paid` → `UPDATE SYNCED` → `DEL active_user` 중 어느 단계에서든 실패하면, 리스너 트랜잭션이 롤백되고 `event_publication`이 미완료로 남습니다.
+- **상태**: 리스너가 `SET paid` → `UPDATE SYNCED` → `DEL active_user` 중 어느 단계에서든 실패하면, `event_publication`이 미완료로 남습니다.
 - **복구**: 재발행 스케줄러가 미완료 이벤트를 재발행하여 리스너를 재실행합니다. 리스너의 모든 연산은 멱등합니다 — `SET paid`는 동일한 값을 덮어쓰고, `SYNCED` 갱신은 이미 SYNCED면 무시되며, `DEL active_user`는 이미 없어도 에러가 없습니다.
 - **중복 판매 불가능**: Redis가 이미 paid로 영구 점유되었다면 다른 사용자의 hold가 불가능하고, 아직 held 상태라도 DB `seat_number UNIQUE` 제약이 최종 방어선입니다. `active_user` 키는 TTL(5분)로 자동 만료됩니다.
 
@@ -488,7 +488,7 @@ public Ticket save(Ticket ticket) {
 
 **복구 메커니즘**:
 
-미완료 이벤트는 `EventResubmitScheduler`(1분 주기)가 `IncompleteEventPublications.resubmitIncompletePublicationsOlderThan(5분)`을 호출하여 자동 재발행합니다. 리스너(`@ApplicationModuleListener`)는 멱등하므로 재실행에 안전합니다.
+미완료 이벤트는 `EventResubmitScheduler`(1분 주기)가 `IncompleteEventPublications.resubmitIncompletePublicationsOlderThan(5분)`을 호출하여 자동 재발행합니다. 리스너는 멱등하므로 재실행에 안전합니다.
 
 ---
 
@@ -901,7 +901,7 @@ kr.jemi.zticket
 │       │   │       ├── PurchaseRequest.java    { seatNumber: 7 }
 │       │   │       └── PurchaseResponse.java   구매 결과 (ticketId, seatNumber)
 │       │   └── event/
-│       │       └── TicketPaidEventListener.java @ApplicationModuleListener 어댑터
+│       │       └── TicketPaidEventListener.java 이벤트 리스너
 │       └── out/
 │           ├── persistence/
 │           │   ├── TicketJpaEntity.java         seatNumber UNIQUE
