@@ -928,16 +928,18 @@ kr.jemi.zticket
 
 ### 모듈 간 의존 관계
 
-```
-ticket  →  queue :: queue-api  (QueueFacade: 활성 사용자 검증/비활성화)
-ticket  →  seat :: seat-api    (SeatFacade: 좌석 선점/결제/해제)
-queue   →  seat :: seat-api    (SeatFacade: 잔여 좌석 수 조회)
-seat    →  (독립)
-common  →  공유 모듈 (OPEN)
-config  →  공유 모듈 (OPEN)
+```mermaid
+graph LR
+    ticket -- "QueueFacade<br/>(활성 사용자 검증/비활성화)" --> queue
+    ticket -- "SeatFacade<br/>(좌석 선점/결제/해제)" --> seat
+    ticket -.-> common
+    queue -- "SeatFacade<br/>(잔여 좌석 수 조회)" --> seat
+    queue -.-> common
 ```
 
-크로스 모듈 호출 경로: `Application Service → Port OUT → Infrastructure OUT Adapter → 대상 모듈 Facade`
+- 실선: `api/` 패키지의 Facade 인터페이스를 통한 크로스 모듈 호출
+- 점선: 공유 모듈 의존 (OPEN)
+- 호출 경로: `Application Service → Port OUT → Infrastructure OUT Adapter → 대상 모듈 Facade`
 
 ### Thymeleaf 화면
 
