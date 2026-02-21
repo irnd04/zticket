@@ -22,6 +22,10 @@ spring:
     show-sql: false
     open-in-view: false
 
+  modulith:
+    events:
+      completion-mode: archive
+
   task:
     execution:
       thread-name-prefix: "zticket-async-"
