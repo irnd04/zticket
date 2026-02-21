@@ -39,6 +39,7 @@ dependencies {
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.6.0'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-spring:7.6.0'
     implementation 'com.github.ben-manes.caffeine:caffeine'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.1'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.flywaydb:flyway-mysql'
