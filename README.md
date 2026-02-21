@@ -632,6 +632,8 @@ VU 동시 시작 (각 VU 1회만 실행)
     └── 4. POST /api/tickets               랜덤 빈 좌석 구매
 ```
 
+Docker Compose profile로 실행합니다.
+
 ```bash
 docker compose --profile k6-full-flow up -d
 ```
