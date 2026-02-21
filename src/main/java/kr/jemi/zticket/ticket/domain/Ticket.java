@@ -43,6 +43,9 @@ public class Ticket {
     }
 
     public void sync() {
+        if (this.status == TicketStatus.SYNCED) {
+            return;
+        }
         if (this.status != TicketStatus.PAID) {
             throw new IllegalStateException(
                     "PAID 상태에서만 동기화할 수 있습니다. 현재: " + this.status);

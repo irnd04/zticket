@@ -102,14 +102,14 @@ class TicketTest {
         }
 
         @Test
-        @DisplayName("SYNCED 상태에서 sync() 호출 시 IllegalStateException이 발생한다")
-        void shouldThrowWhenSyncFromSynced() {
+        @DisplayName("SYNCED 상태에서 sync() 호출 시 멱등하게 무시된다")
+        void shouldBeIdempotentWhenAlreadySynced() {
             Ticket ticket = Ticket.create(1, "token-1", 7);
             ticket.sync();
 
-            assertThatThrownBy(ticket::sync)
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("PAID 상태에서만 동기화");
+            ticket.sync();
+
+            assertThat(ticket.getStatus()).isEqualTo(TicketStatus.SYNCED);
         }
 
         @Test

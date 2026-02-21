@@ -291,29 +291,23 @@ flowchart TD
 - **상태**: Redis `held:{token}` (TTL 째깍째깍) + DB `PAID`
 - Redis에 아직 held 상태이므로 TTL 만료 시 다른 사용자에게 빈 좌석으로 노출될 수 있습니다.
 - Outbox(`event_publication`)에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 Redis를 복원합니다.
-- **중복 판매 불가능**: 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
+- **중복 판매 불가능**: 이벤트 처리가 늦어져 설령 TTL 만료 후 다른 사용자가 hold하더라도, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다.
 
 #### Case 2-2: DB INSERT 성공했으나 타임아웃으로 실패 응답
 
 - **시나리오**: Redis held 성공 → DB INSERT 전송 → DB는 커밋 성공 → 그러나 네트워크 타임아웃으로 애플리케이션은 예외 수신
 - **사용자 응답**: INTERNAL_ERROR (구매 실패로 인식)
-- **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + DB `PAID` 레코드 존재
-- **복구**: Outbox에 이벤트가 저장되어 있으므로, 재발행 스케줄러(1분 주기)가 미완료 이벤트를 재발행하여 `SET seat:{n} paid:{token}`으로 Redis를 복원한 뒤 `SYNCED`로 갱신합니다.
+- **상태**: catch 블록에서 Lua 스크립트로 `held:{자신의 토큰}`일 때만 `DEL seat:{n}` 롤백 실행 → Redis 키 삭제 + DB `PAID` 레코드 + `event_publication` 레코드 존재
+- **복구**: DB 커밋이 성공했으므로 `event_publication`에 이벤트가 저장되어 있고, 정상 Outbox 흐름으로 리스너가 자동 처리하여 `SET seat:{n} paid:{token}`으로 Redis를 복원합니다.
+- **Lua DEL과 이벤트 리스너의 경합**: catch 블록의 Lua DEL과 Outbox 이벤트 리스너의 `SET paid`가 동시에 실행될 수 있지만, 어느 순서든 안전합니다. Lua DEL이 먼저 실행되면 리스너가 `SET paid`로 복원하고, 리스너가 먼저 `SET paid`를 실행하면 Lua가 `"paid:{token}" ≠ "held:{token}"`으로 판단하여 삭제하지 않습니다.
 - **중복 판매 불가능**: Redis 키가 잠시 삭제되어 다른 사용자가 hold할 수 있지만, DB INSERT 시 `seat_number UNIQUE` 제약에 의해 거부됩니다. 사용자에게는 실패로 응답되었지만 실제로는 구매가 완료된 상태이므로, 티켓 조회(마이페이지 등)에서 확인할 수 있습니다.
 
-#### Case 3: Redis paid 성공 → DB SYNCED 갱신 실패
+#### Case 3: 이벤트 리스너 처리 중 실패 (paid 전환 / SYNCED 갱신 / active 제거)
 
 - **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
-- **상태**: Redis `paid:{token}` (영구) + DB `PAID`
-- 재발행 스케줄러가 미완료 이벤트를 재발행하여 paySeat을 재실행하지만, 이미 paid이므로 동일한 값을 덮어쓸 뿐입니다(멱등). 이후 DB를 SYNCED로 갱신합니다.
-- **중복 판매 불가능**: Redis가 이미 paid로 영구 점유 중이라 다른 사용자의 hold가 불가능합니다.
-
-#### Case 4: DB SYNCED 성공 → active 유저 제거 실패
-
-- **사용자 응답**: 구매 성공 (PAID 티켓 반환 완료)
-- **상태**: Redis `paid:{token}` (영구) + DB `SYNCED` + `active_user:{token}` 잔존
-- 구매와 동기화는 완료된 상태이며, active 슬롯만 5분간 불필요하게 점유됩니다.
-- `active_user` 키에 TTL(5분)이 걸려 있어 별도 처리 없이 자동 만료됩니다.
+- **상태**: 리스너(`@ApplicationModuleListener`)가 `SET paid` → `UPDATE SYNCED` → `DEL active_user` 중 어느 단계에서든 실패하면, 리스너 트랜잭션이 롤백되고 `event_publication`이 미완료로 남습니다.
+- **복구**: 재발행 스케줄러가 미완료 이벤트를 재발행하여 리스너를 재실행합니다. 리스너의 모든 연산은 멱등합니다 — `SET paid`는 동일한 값을 덮어쓰고, `SYNCED` 갱신은 이미 SYNCED면 무시되며, `DEL active_user`는 이미 없어도 에러가 없습니다.
+- **중복 판매 불가능**: Redis가 이미 paid로 영구 점유되었다면 다른 사용자의 hold가 불가능하고, 아직 held 상태라도 DB `seat_number UNIQUE` 제약이 최종 방어선입니다. `active_user` 키는 TTL(5분)로 자동 만료됩니다.
 
 ---
 
