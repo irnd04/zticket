@@ -622,8 +622,8 @@ docker compose --profile k6-stress up -d
 | SET | ~0.4 | 15ms | 15ms | 15ms | active 토큰 등록 |
 | ZREM | ~2.8 | 11ms | 14ms | 15ms | 잠수 유저 제거 + 입장 remove |
 | ZRANGEBYSCORE | ~1.4 | 12ms | 20ms | 22ms | 잠수 유저 탐색 |
-| KEYS | ~0.2 | 20ms | 22ms | 22ms | active 유저 카운트 |
-| MGET | ~0.2 | 5ms | 5ms | 6ms | heartbeat score 조회 |
+| KEYS | ~0.2 | 7ms | 8ms | 8ms | active 유저 카운트 |
+| MGET | ~0.2 | 5ms | 5ms | 6ms | 전체 좌석 상태 일괄 조회 |
 | **전체** | **~161.5K** | | | | |
 
 #### 결론

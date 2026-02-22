@@ -1,7 +1,6 @@
 package kr.jemi.zticket.queue.infrastructure.out.redis;
 
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.dao.DataAccessException;
@@ -53,7 +52,6 @@ public class ActiveUserRedisAdapter implements ActiveUserPort {
 
     @Override
     public int countActive() {
-        Set<String> keys = redisTemplate.keys(KEY_PREFIX + "*");
-        return keys != null ? keys.size() : 0;
+        return redisTemplate.keys(KEY_PREFIX + "*").size();
     }
 }
