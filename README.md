@@ -318,7 +318,7 @@ end
 | 잠수 감지 | ZRANGEBYSCORE | O(log N + M) | 5초마다 |
 | 잠수 제거 | ZREM × 2 | O(M log N) | 5초마다 |
 | active 카운트 | SCAN | O(전체 키 수) | 5초마다 |
-| peek | ZRANGE | O(K log N) | 5초마다 |
+| peek | ZRANGE | O(log N + K) | 5초마다 |
 | remove | ZREM × 2 | O(K log N) | 5초마다 |
 
 ---
